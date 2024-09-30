@@ -53,6 +53,8 @@ conda activate rho
 pip install .
 ```
 
+Run a few (currently limited) tests on loss functions with: `pytest tests/rholearn/loss.py`
+
 ### Installing `FHI-aims`
 
 For generating reference data, using the `aims_interface` of `rholearn`, a working installation of **`FHIaims >= 240926`** is required. FHI-aims is not open source but is free for academic use. Follow the instructions on their website [fhi-aims.org/get-the-code](https://fhi-aims.org/get-the-code/) to get and build the code. The end result should be an executable, compiled for your specific system.
@@ -81,12 +83,3 @@ rholearn.eval(DFT_SETTINGS, ML_SETTINGS, HPC_SETTINGS)
 ```
 
 **Tutorial:** for a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/) on data generation using `FHI-aims` and model training using `rholearn`.
-
-
-### Run tests
-
-Some basic tests on the loss function can be run as follows:
-
-```bash
-pytest tests/rholearn/loss.py
-```
