@@ -52,7 +52,8 @@ Then clone and install `rholearn`:
 ```bash
 git clone https://github.com/lab-cosmo/rholearn.git
 cd rholearn
-pip install .
+# Specify CPU-only torch
+pip install --extra-index-url https://download.pytorch.org/whl/cpu .
 ```
 
 Run a few (currently limited) tests on loss functions with: `pytest tests/rholearn/loss.py`

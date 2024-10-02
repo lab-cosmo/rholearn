@@ -25,7 +25,7 @@ dependencies = [
 
     # Extra dependencies from the COSMO stack
     "metatensor[torch]",
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@fb7f363cd23498e97e24e67f37c6c49cc7826884#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@0311925f9aba803a0744a48d448567a9b65316e1#subdirectory=python/rascaline-torch",
 ]
 
 [tool.setuptools]
