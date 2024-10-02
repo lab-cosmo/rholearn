@@ -27,6 +27,7 @@ class _DescriptorCalculator(torch.nn.Module):
         self,
         atom_types: List[int],
         spherical_expansion_hypers: dict,
+        n_correlations: int,
         dtype: torch.dtype,
         device: torch.device,
     ) -> None:
@@ -37,8 +38,9 @@ class _DescriptorCalculator(torch.nn.Module):
         self._spherical_expansion_hypers = spherical_expansion_hypers
 
         self._spherical_expansion = SphericalExpansion(**spherical_expansion_hypers)
-        n_correlations = 1  # for power spectrum
+        self._n_correlations = n_correlations
         self._density_correlations = DensityCorrelations(
+            n_correlations=n_correlations,
             max_angular=spherical_expansion_hypers["max_angular"] * (n_correlations + 1),
             skip_redundant=True,
             dtype=dtype,
@@ -137,8 +139,10 @@ class RhoModel(torch.nn.Module):
         these types.
     :param spherical_expansion_hypers: `dict`, the hypers for the spherical expansion
         calculator.
-    :param density_correlations_hypers: `dict`, the hypers for the density correlations
-        calculator.
+    :param n_correlations: `int`, the number of Clebsch Gordan tensor products to take
+        of the spherical expansion. This builds the body order of the equivariant
+        descriptor. ``n_correlations=1`` forms an equivariant power spectrum
+        ("lambda-SOAP)", ``n_correlations=2`` forms an equivariant bispectrum, etc.
     :param net: `Callable`, a callable function containing the NN architecture as a
         `torch.nn.Module`. Has input arguments that correspond only to model metadata,
         i.e. `in_keys`, `invariant_key_idxs`,`in_properties`, and `out_properties`, and
@@ -156,6 +160,7 @@ class RhoModel(torch.nn.Module):
         *,
         target_basis: mts.Labels,
         spherical_expansion_hypers: dict,
+        n_correlations: int,
         net: Callable,
         get_selected_atoms: Optional[Callable] = None,
         dtype: torch.dtype = torch.float64,
@@ -183,6 +188,7 @@ class RhoModel(torch.nn.Module):
         self._descriptor_calculator = _DescriptorCalculator(
             atom_types=self._atom_types,
             spherical_expansion_hypers=spherical_expansion_hypers,
+            n_correlations=n_correlations,
             dtype=dtype,
             device=device,
         )

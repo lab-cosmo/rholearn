@@ -59,6 +59,8 @@ Run a few (currently limited) tests on loss functions with: `pytest tests/rholea
 
 For generating reference data, using the `aims_interface` of `rholearn`, a working installation of **`FHIaims >= 240926`** is required. FHI-aims is not open source but is free for academic use. Follow the instructions on their website [fhi-aims.org/get-the-code](https://fhi-aims.org/get-the-code/) to get and build the code. The end result should be an executable, compiled for your specific system.
 
+There are also useful tutorials on the basics of running `FHI-aims` [here](https://fhi-aims-club.gitlab.io/tutorials/basics-of-running-fhi-aims/).
+
 
 ### Basic usage
 

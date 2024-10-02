@@ -9,6 +9,7 @@ from rholearn import train_utils
 from rholearn.model import RhoModel
 from rholearn.settings.defaults import dft_defaults, ml_defaults, net_default
 from rholearn.utils import convert, io, system
+from rholearn.utils.io import pickle_dict
 from rholearn.utils.utils import timestamp
 
 
@@ -59,6 +60,7 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
             model = RhoModel(
                 target_basis=target_basis,
                 spherical_expansion_hypers=SPHERICAL_EXPANSION_HYPERS,
+                n_correlations=N_CORRELATIONS,
                 net=NET,
                 get_selected_atoms=GET_SELECTED_ATOMS,
                 **TORCH,
@@ -115,6 +117,14 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
         n_val=N_VAL,
         n_test=N_TEST,
         seed=SEED,
+    )
+    pickle_dict(
+        join(ML_DIR, "crossval_idxs.pickle"),
+        {
+            "train": all_subset_id[0],
+            "val": all_subset_id[1],
+            "test": all_subset_id[2],
+        }
     )
     all_frames = system.read_frames_from_xyz(XYZ)
 
