@@ -43,13 +43,15 @@ Leveraging the speed- and memory-efficient operations of `torch`, and using buil
 
 ### Installing `rholearn`
 
-With a working `conda` installation, install as follows:
+With a working `conda` installation, first set up an environment:
 ```bash
-git clone https://github.com/lab-cosmo/rholearn
-cd rholearn
-conda env create --file install/environment.yaml
+conda create -n rho python==3.11
 conda activate rho
-./install/extra-pip-packages.sh
+```
+Then clone and install `rholearn`:
+```bash
+git clone https://github.com/lab-cosmo/rholearn.git
+cd rholearn
 pip install .
 ```
 
