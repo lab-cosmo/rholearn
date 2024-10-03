@@ -82,7 +82,7 @@ epoch 100 train_loss 50.45056127415962 val_loss 255.06999044889676 dt_train 0.33
 where the training and validation losses are computed as the L2 loss on the ML-predicted density against the reference RI-basis reconstruction of the density in real-space:
 
 $$
-\mathcal{L}(\textbf{w}) = \int_{\mathbb{r}} | \rho^{\text{ML}}(\textbf{r, \textbf{w}}) - \rho^{\text{RI}}(\textbf{r}) | ^ 2
+\mathcal{L}(\textbf{w}) = \int_{\mathbb{R}} | \rho^{\text{ML}}(\textbf{r, \textbf{w}}) - \rho^{\text{RI}}(\textbf{r}) | ^ 2
 $$
 
 When the basis set definition is inserted, the loss becomes (and how it is evaluated in practice):
@@ -123,10 +123,9 @@ system 19 abs_error 78.85176 norm 32.00184 nmae 246.39755 squared_error 1471.641
 `system` is the index of the frame/structure being evaluted, `abs_error` the absolute error between predicted and reference field in real-space (numerator of expression below), `norm` is the normalization factor, i.e. the integrated reference field (denominator), `nmae` is the former divided by the latter, and `squared_error` is the squared error (L2 loss as in the above loss expression).
 
 The evaluation metric commonly used is the normalized mean absolute error (% NMAE) between the ML-predicted density and the reference density. The reference density may either be the RI reconstructed density or the original SCF density:
+
 $$
-\begin{align}
-\text{\% NMAE} = \frac{ \int_\R d\textbf{r} | \rho^{\text{ML}}(\textbf{r}) - \rho^{\text{ref}}(\textbf{r}) | }{\int_\R d\textbf{r} \rho^{\text{ref}}(\textbf{r})}
-\end{align}
+\text{\% NMAE} = \frac{ \int_{\mathbb{R}} d\textbf{r} | \rho^{\text{ML}}(\textbf{r}) - \rho^{\text{ref}}(\textbf{r}) | }{\int_\R d\textbf{r} \rho^{\text{ref}}(\textbf{r})}
 $$
 
 using $\rho^{\text{SCF}}(\textbf{r})$ as the reference density computes the error on the actual target field of interest. However, as ML models trained against density fitted reference data intrinsically inherit the density fitting error, evaluating model performance as the error on the RI density $\rho^{\text{RI}}(\textbf{r})$ is sometimes more useful for separating errors between basis set expansion and model prediction.
