@@ -9,8 +9,6 @@ description = "Metatensor-torch framework for learning electronic densities deco
 authors = [{name = "Joseph W. Abbott", email = "joseph.william.abbott@gmail.com"}]
 dependencies = [
     "ase",
-    "chemfiles",
-    "chemiscope",
     "ipython",
     "jupyter",
     "jupyterlab",
@@ -19,13 +17,18 @@ dependencies = [
     "pytest",
     "py3dmol",
     "sympy",
-    "vesin",
-    "wigners",
     "wheel",
 
-    # Extra dependencies from the COSMO stack
+    # Dependencies from the COSMO (+ friends) stack
+    "chemfiles",
+    "chemiscope",
     "metatensor[torch]",
     "rascaline-torch @ git+https://github.com/luthaf/rascaline@0311925f9aba803a0744a48d448567a9b65316e1#subdirectory=python/rascaline-torch",
+    "vesin",
+    "wigners",
+
+    # Extra dependencies
+    "cube_toolz @ git+https://github.com/funkymunkycool/Cube-Toolz",
 ]
 
 [tool.setuptools]
