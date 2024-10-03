@@ -2,7 +2,7 @@
 
 ## 1.0: TLDR of requried commands
 
-After modifying the appropriate user-settings files, the commands needed to generate data for training a model are below. For a full explanation of each, read on to the following sections.
+After modifying the user-setting in `dft_settings.py` and `hpc_settings.py`, the commands needed to generate data for training a model are below. For a full explanation of each, read on to the following sections.
 
 ```bash
 # Modify dft_settings.py and hpc_settings.py as appropriate
@@ -172,4 +172,4 @@ processed/                            # Processed data directory
     ...
 ```
 
-The processed data contained in `processed/`, along with the `.xyz` file in `data/`, will be used as the reference data to train a surrogate model in the next step.
+The processed data contained in `processed/`, along with the `.xyz` file in `data/`, will be used as the reference data to train a surrogate model in the next step, the instructions for which can be found in [the next README](../part-2-ml/README.md).

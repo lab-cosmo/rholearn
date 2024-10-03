@@ -6,8 +6,7 @@
 After copying `part-1-dft/dft_settings.py` and `part-1-dft/hpc_settings.py` to this directory and modifying the `ml_settings.py` as desired, the commands needed to train and evalute a model are below. For a full explanation of each, read on to the following sections.
 
 ```bash
-# Copy dft_settings.py and hpc_settings.py into this directory, and
-# modify ml_settings.py as desired
+# Copy dft_settings.py and hpc_settings.py into this directory, and modify ml_settings.py if desired
 # ...
 
 # Train
@@ -19,20 +18,7 @@ python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_setti
 
 Where each command can be wrapped in an HPC submission script.
 
-## 2.1: Specify ML settings
-
-First copy files `part-1-dft/{dft_settings,hpc_settings}.py` into the current directory `part-2-ml/`. Next, inspect the user settings file `ml_settings.py` and edit the appropriate fields.
-
-You can also inspect the default DFT settings, which can be printed with:
-```python
-import pprint
-from rholearn.settings.defaults import ml_defaults
-
-pprint.pprint(ml_defaults.ML_DEFAULTS)
-```
-Any of these can be modified by specification in the local file `ml_settings.py`.
-
-## 2.2: Key parts of the training workflow
+## 2.1: Key parts of the training workflow
 
 The end-to-end pipeline central to `rholearn` is shown in the following schema.
 
@@ -44,6 +30,18 @@ The end-to-end pipeline central to `rholearn` is shown in the following schema.
 
 **Building the field.** Finally, the predicted coefficients are passed back into the electronic structure code **`FHI-aims`** to rebuild the real-space electronic density.
 
+## 2.2: Specify ML settings
+
+First copy files `part-1-dft/{dft_settings,hpc_settings}.py` into the current directory `part-2-ml/`. Next, inspect the user settings file `ml_settings.py` and edit the appropriate fields.
+
+You can also inspect the default DFT settings, which can be printed with:
+```python
+import pprint
+from rholearn.settings.defaults import ml_defaults
+
+pprint.pprint(ml_defaults.ML_DEFAULTS)
+```
+Any of these can be modified by specification in the local file `ml_settings.py`.
 
 ## 2.3: Train a model
 
