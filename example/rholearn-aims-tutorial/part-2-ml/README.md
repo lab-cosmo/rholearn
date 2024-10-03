@@ -80,6 +80,7 @@ epoch 0 train_loss 1259567.8746709786 val_loss 732263.7933436064 dt_train 0.492 
 epoch 100 train_loss 50.45056127415962 val_loss 255.06999044889676 dt_train 0.337 dt_val 0.128 lr 0.01
 ```
 where the training and validation losses are computed as the L2 loss on the ML-predicted density against the reference RI-basis reconstruction of the density in real-space. When the (mutually consistent) basis set definition is inserted, the loss becomes (and how it is evaluated in practice):
+
 $$
 \mathcal{L}(\textbf{w}) = \int_\R | \rho^{\text{ML}}(\textbf{r, \textbf{w}}) - \rho^{\text{RI}}(\textbf{r}) | ^ 2 \\
 = (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}}) \ \hat{S}^{\text{RI}} \ (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}})
