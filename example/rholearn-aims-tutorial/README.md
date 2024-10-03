@@ -8,7 +8,7 @@ First, data is generated with `FHI-aims` for a subset of structures from the QM7
 
 Second, the reference data output from the first step, in the form of fitting coefficients, projections, and overlap matrices, form the dataset for training a machine learning model. In `rholearn`, arbitrary descriptor-based equivariant neural networks can be used to learn the mapping from nuclear coordinates to basis set expansion coefficients. 
 
-Typically, the descriptor is an equivariant power spectrum (or "$\lambda{}$-SOAP"), which is passed through a linear layer or small multi-layer perceptron to transform it into a vector of predicted coefficients. A model is trained iteratively over a number of epochs, optimizing the NN weights by backpropagation and gradient descent.
+Typically, the descriptor is an equivariant power spectrum (or $\lambda$ -SOAP), which is passed through a linear layer or small multi-layer perceptron to transform it into a vector of predicted coefficients. A model is trained iteratively over a number of epochs, optimizing the NN weights by backpropagation and gradient descent.
 
 ## Supporting notebooks
 

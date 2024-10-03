@@ -81,10 +81,8 @@ epoch 100 train_loss 50.45056127415962 val_loss 255.06999044889676 dt_train 0.33
 ```
 where the training and validation losses are computed as the L2 loss on the ML-predicted density against the reference RI-basis reconstruction of the density in real-space. When the (mutually consistent) basis set definition is inserted, the loss becomes (and how it is evaluated in practice):
 $$
-\begin{align}
-\mathcal{L}(\textbf{w}) &= \int_\R | \rho^{\text{ML}}(\textbf{r, \textbf{w}}) - \rho^{\text{RI}}(\textbf{r}) | ^ 2 \\
-&= (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}}) \ \hat{S}^{\text{RI}} \ (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}})
-\end{align}
+\mathcal{L}(\textbf{w}) = \int_\R | \rho^{\text{ML}}(\textbf{r, \textbf{w}}) - \rho^{\text{RI}}(\textbf{r}) | ^ 2 \\
+= (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}}) \ \hat{S}^{\text{RI}} \ (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}})
 $$
 
 where $\textbf{w}$ are the trainable model parameters, $\textbf{d}^{\text{X}}$ are the ML-predicted or RI-fitted expansion coefficients, and $\hat{S}^{\text{RI}}$ is the overlap matrix of the RI basis functions.
@@ -119,7 +117,6 @@ system 19 abs_error 78.85176 norm 32.00184 nmae 246.39755 squared_error 1471.641
 `system` is the index of the frame/structure being evaluted, `abs_error` the absolute error between predicted and reference field in real-space (numerator of expression below), `norm` is the normalization factor, i.e. the integrated reference field (denominator), `nmae` is the former divided by the latter, and `squared_error` is the squared error (L2 loss as in the above loss expression).
 
 The evaluation metric commonly used is the normalized mean absolute error (% NMAE) between the ML-predicted density and the reference density. The reference density may either be the RI reconstructed density or the original SCF density:
-
 $$
 \begin{align}
 \text{\% NMAE} = \frac{ \int_\R d\textbf{r} | \rho^{\text{ML}}(\textbf{r}) - \rho^{\text{ref}}(\textbf{r}) | }{\int_\R d\textbf{r} \rho^{\text{ref}}(\textbf{r})}
