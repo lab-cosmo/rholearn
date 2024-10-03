@@ -12,6 +12,10 @@ Second, the reference data output from the first step, in the form of fitting co
 
 Typically, the descriptor is an equivariant power spectrum (or '$\lambda$-SOAP'), which is passed through a linear layer or small multi-layer perceptron to transform it into a vector of predicted coefficients. A model is trained iteratively over a number of epochs, optimizing the NN weights by backpropagation and gradient descent.
 
+## Supporting notebooks
+
+Some basic and optional extras for each section of each tutorial README is provided in jupyter notebooks of the same name. These are intended to aid visualization and inspection of outputs.
+
 
 ## Setup
 

@@ -1,5 +1,24 @@
 # Part 2: Train a surrogate model with `rholearn`
 
+
+## 2.0: TLDR of requried commands
+
+After copying `part-1-dft/dft_settings.py` and `part-1-dft/hpc_settings.py` to this directory and modifying the `ml_settings.py` as desired, the commands needed to train and evalute a model are below. For a full explanation of each, read on to the following sections.
+
+```bash
+# Copy dft_settings.py and hpc_settings.py into this directory, and
+# modify ml_settings.py as desired
+# ...
+
+# Train
+python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from net import NET; rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET);'
+
+# Eval
+python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from hpc_settings import HPC_SETTINGS; rholearn.eval(DFT_SETTINGS, ML_SETTINGS, HPC_SETTINGS);'
+```
+
+Where each command can be wrapped in an HPC submission script.
+
 ## 2.1: Specify ML settings
 
 First copy files `part-1-dft/{dft_settings,hpc_settings}.py` into the current directory `part-2-ml/`. Next, inspect the user settings file `ml_settings.py` and edit the appropriate fields.
@@ -19,7 +38,7 @@ The end-to-end pipeline central to `rholearn` is shown in the following schema.
 
 ![rholearn workflow summary](../../../example/assets/rholearn.png)
 
-**Constructing an equivariant descriptor.** A system of interest is expressed as decorated (i.e. atom-typed) nuclear coordinates. Basis functions are placed on each atomic center to generate a smooth atomic density field, and local atomic environments (within a cutoff) defined for each atom. In the spherical basis, higher body order descriptors are built by taking Clebsch-Gordan tensor products of atom-centered densities. These transformations comprise the steps in constructing an (at present not learnable) equivariant descriptor that encodes geometric information about the molecule/material. **`rascaline`** is used to generate the atomic density descriptor, and perform the Clebsch-Gordan products to increase body order.
+**Constructing an equivariant descriptor.** A system of interest is expressed as decorated (i.e. atom-typed) nuclear coordinates. Basis functions are placed on each atomic center to generate a smooth atomic density field, and local atomic environments (within a cutoff) are defined for each atom. In the spherical basis, higher body order descriptors are built by taking Clebsch-Gordan tensor products of atom-centered densities. These transformations comprise the steps in constructing an equivariant descriptor that encodes geometric information of the molecule/material. **`rascaline`** is used to generate the atomic density descriptor, and perform the Clebsch-Gordan products to increase body order.
 
 **Predicting on a basis**. The local user-settings file `net.py` and default file `rholearn.settings.defaults.net_default` contains the neural network (NN) architecture used to initialize the model. By default, this is just a simple linear layer. The equivariant descriptor is passed through the NN to form a vector a predicted coefficients on the output layer. The transformations of the NN are defined by learnable weight tensors that are optimized during training. **`metatensor-learn`** modules are used to construct dataset and dataloaders, and define NN architectures.
 
@@ -43,7 +62,7 @@ rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET)
 python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from net import NET; rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET);'
 ```
 
-The file `hpc_settings.py` is not used by the `rholean.train` function. Instead, **to run training on a cluster**, the one-line python command can be incorporated into an HPC run script. In this case, ensure that the calculation is run from within the `rho` conda environment. For slurm schedulers, this is done with the `--get-user-env` flag:
+The file `hpc_settings.py` is not used by the `rholearn.train` function. Instead, **to run training on a cluster**, the one-line python command can be incorporated into an HPC run script. In this case, ensure that the calculation is run from within the `rho` conda environment. For slurm schedulers, this is done by running the script from the `rho` env with the `--get-user-env` flag in the submission script:
 
 ```bash
 #!/bin/bash
@@ -65,7 +84,7 @@ epoch 100 train_loss 50.45056127415962 val_loss 255.06999044889676 dt_train 0.33
 where the training and validation losses are computed as the L2 loss on the ML-predicted density against the reference RI-basis reconstruction of the density in real-space. When the (mutually consistent) basis set definition is inserted, the loss becomes (and how it is evaluated in practice):
 $$
 \begin{align}
-\mathcal{L}(\textbf{w}) &= | \rho^{\text{ML}}(\textbf{r, \textbf{w}}) - \rho^{\text{RI}}(\textbf{r}) | ^ 2 \\
+\mathcal{L}(\textbf{w}) &= \int_\R | \rho^{\text{ML}}(\textbf{r, \textbf{w}}) - \rho^{\text{RI}}(\textbf{r}) | ^ 2 \\
 &= (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}}) \ \hat{S}^{\text{RI}} \ (\textbf{d}^{\text{ML}}(\textbf{w}) - \textbf{d}^{\text{RI}})
 \end{align}
 $$
