@@ -125,7 +125,7 @@ system 19 abs_error 78.85176 norm 32.00184 nmae 246.39755 squared_error 1471.641
 The evaluation metric commonly used is the normalized mean absolute error (% NMAE) between the ML-predicted density and the reference density. The reference density may either be the RI reconstructed density or the original SCF density:
 
 $$
-\text{\% NMAE} = \frac{ \int_{\mathbb{R}} d\textbf{r} | \rho^{\text{ML}}(\textbf{r}) - \rho^{\text{ref}}(\textbf{r}) | }{\int_\R d\textbf{r} \rho^{\text{ref}}(\textbf{r})}
+\text{\% NMAE} = \frac{ \int_{\mathbb{R}} d\textbf{r} | \rho^{\text{ML}}(\textbf{r}) - \rho^{\text{ref}}(\textbf{r}) | }{\int_{\mathbb{R}} d\textbf{r} \rho^{\text{ref}}(\textbf{r})}
 $$
 
 using $\rho^{\text{SCF}}(\textbf{r})$ as the reference density computes the error on the actual target field of interest. However, as ML models trained against density fitted reference data intrinsically inherit the density fitting error, evaluating model performance as the error on the RI density $\rho^{\text{RI}}(\textbf{r})$ is sometimes more useful for separating errors between basis set expansion and model prediction.
