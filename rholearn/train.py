@@ -25,7 +25,7 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
             c. Log results, at certain intervals
             d. Checkpoint model, at certain intervals
     """
-    t0_training = time.time()
+    t0_setup = time.time()
 
     # ===== Set global settings =====
     _set_settings_globally(dft_settings, ml_settings, net)  # must be in this order
@@ -64,6 +64,7 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
                 net=NET,
                 get_selected_atoms=GET_SELECTED_ATOMS,
                 **TORCH,
+                angular_cutoff=ANGULAR_CUTOFF,
             )
 
         else:  # Use pre-trained model
@@ -182,6 +183,9 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
         },
     )
 
+    dt_setup = time.time() - t0_setup
+    io.log(log_path, train_utils.report_dt(dt_setup, "Setup complete"))
+    
     # ===== Training loop =====
 
     io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1]}")

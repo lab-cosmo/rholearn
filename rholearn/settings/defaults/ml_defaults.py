@@ -22,7 +22,14 @@ SPHERICAL_EXPANSION_HYPERS = {
     "center_atom_weight": 1.0,
     "radial_scaling": {"Willatt2018": {"exponent": 4, "rate": 1, "scale": 3.5}},
 }
-N_CORRELATIONS = 1  # number of CG tensor products to correlate spherical expansion
+
+# Number of CG tensor products to correlate spherical expansion
+N_CORRELATIONS = 1
+
+# Max angular momentum to compute in CG products. Anything <
+# SPHERICAL_EXPANSION_HYPERS["max_angular"] * (N_CORRELATIONS + 1) loses information but
+# speeds up computation.
+ANGULAR_CUTOFF = None
 
 # Value to cutoff the overlap matrix (Angstrom)
 OVERLAP_CUTOFF = None
@@ -82,6 +89,7 @@ VAL_DATA_NAMES = {
 
 # Final dict of all global variables defined above
 ML_DEFAULTS = {
+    "ANGULAR_CUTOFF": ANGULAR_CUTOFF,
     "EVAL": EVAL,
     "GET_SELECTED_ATOMS": None,
     "N_CORRELATIONS": N_CORRELATIONS,

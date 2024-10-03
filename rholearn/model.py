@@ -30,6 +30,7 @@ class _DescriptorCalculator(torch.nn.Module):
         n_correlations: int,
         dtype: torch.dtype,
         device: torch.device,
+        angular_cutoff: Optional[int] = None,
     ) -> None:
 
         super().__init__()
@@ -39,9 +40,19 @@ class _DescriptorCalculator(torch.nn.Module):
 
         self._spherical_expansion = SphericalExpansion(**spherical_expansion_hypers)
         self._n_correlations = n_correlations
+
+        if angular_cutoff is None:
+            max_angular = spherical_expansion_hypers["max_angular"] * (
+                n_correlations + 1
+            )
+        else:
+            max_angular = angular_cutoff
+        self._max_angular = max_angular
+        self._angular_cutoff = angular_cutoff
+
         self._density_correlations = DensityCorrelations(
             n_correlations=n_correlations,
-            max_angular=spherical_expansion_hypers["max_angular"] * (n_correlations + 1),
+            max_angular=max_angular,
             skip_redundant=True,
             dtype=dtype,
             device=device,
@@ -52,6 +63,7 @@ class _DescriptorCalculator(torch.nn.Module):
         frames: List[Frame],
         selected_samples: Optional[mts.Labels] = None,
         selected_keys: Optional[mts.Labels] = None,
+        compute_metadata: bool = False,
     ) -> mts.TensorMap:
         """
         Takes as input a :py:class:`chemfiles.Frame` frames. Computes an equivariant
@@ -94,11 +106,25 @@ class _DescriptorCalculator(torch.nn.Module):
         )
 
         # Compute lambda-SOAP
-        descriptor = self._density_correlations.compute(
-            density,
-            selected_keys=selected_keys,
-        )
-        descriptor = descriptor.keys_to_properties(["l_1", "l_2"])
+        if compute_metadata:
+            descriptor = self._density_correlations.compute_metadata(
+                density,
+                selected_keys=selected_keys,
+                angular_cutoff=self._angular_cutoff,
+            )
+        else:
+            descriptor = self._density_correlations.compute(
+                density,
+                selected_keys=selected_keys,
+                angular_cutoff=self._angular_cutoff,
+            )
+
+        cg_key_names = []
+        for i in range(1, self._n_correlations + 2):
+            cg_key_names += [f"l_{i}"]
+            if i > 2:
+                cg_key_names += [f"k_{i-1}"]
+        descriptor = descriptor.keys_to_properties(cg_key_names)
 
         return descriptor
 
@@ -107,6 +133,7 @@ class _DescriptorCalculator(torch.nn.Module):
         frames: List[Frame],
         selected_samples: Optional[mts.Labels] = None,
         selected_keys: Optional[mts.Labels] = None,
+        compute_metadata: bool = False,
     ) -> Union[mts.TensorMap, List[mts.TensorMap]]:
         """
         Calls the :py:meth:`compute` method.
@@ -115,6 +142,7 @@ class _DescriptorCalculator(torch.nn.Module):
             frames=frames,
             selected_samples=selected_samples,
             selected_keys=selected_keys,
+            compute_metadata=compute_metadata,
         )
 
     def __repr__(self) -> str:
@@ -122,6 +150,8 @@ class _DescriptorCalculator(torch.nn.Module):
             f"DescriptorCalculator("
             f"\n\tatom_types={self._atom_types},"
             f"\n\tspherical_expansion_hypers={self._spherical_expansion_hypers},"
+            f"\n\tn_correlations={self._n_correlations},"
+            f"\n\tmax_angular={self._max_angular},"
             "\n)"
         )
 
@@ -147,12 +177,16 @@ class RhoModel(torch.nn.Module):
         `torch.nn.Module`. Has input arguments that correspond only to model metadata,
         i.e. `in_keys`, `invariant_key_idxs`,`in_properties`, and `out_properties`, and
         returns a fully initialized `torch.nn.Module` once called.
-    :param dtype: `torch.dtype`, the data type for the model.
-    :param device: `torch.device`, the device for the model.
     :param get_selected_atoms: `Callable`, an optional callable function that returns
         the indices of atoms to compute descriptors for. The callable should take a
         single :py:class:`chemfiles.Frame` object as input and return a list of
         integers.
+    :param dtype: `torch.dtype`, the data type for the model.
+    :param device: `torch.device`, the device for the model.
+    :param angular_cutoff: `int`, the maximum angular momentum to compute in
+        intermediate Clebsch Gordan tensor products. If None, the maximum angular
+        momentum is set to `spherical_expansion_hypers["max_angular"] * (n_correlations
+        + 1)`.
     """
 
     def __init__(
@@ -165,6 +199,7 @@ class RhoModel(torch.nn.Module):
         get_selected_atoms: Optional[Callable] = None,
         dtype: torch.dtype = torch.float64,
         device: torch.device = "cpu",
+        angular_cutoff: Optional[int] = None,
     ) -> None:
 
         super().__init__()
@@ -191,6 +226,7 @@ class RhoModel(torch.nn.Module):
             n_correlations=n_correlations,
             dtype=dtype,
             device=device,
+            angular_cutoff=angular_cutoff,
         )
 
         # Set metadata
@@ -615,7 +651,11 @@ def _atom_types_to_descriptor_basis_in_properties(
             ),
             position=[0, 0, 10 * i],
         )
-    descriptor = descriptor_calculator(frames=[dummy_frame])
+    descriptor = descriptor_calculator(
+        frames=[dummy_frame],
+        selected_keys=in_keys,
+        compute_metadata=True,
+    )
 
     return [descriptor[key].properties for key in in_keys]
 
