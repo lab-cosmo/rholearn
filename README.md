@@ -68,9 +68,9 @@ There are also useful tutorials on the basics of running `FHI-aims` [here](https
 
 ### Basic usage
 
-In a run directory, user-options are defined in YAML files named ["dft-options.yaml"](examples/options/dft-options.yaml), ["hpc-options.yaml"](examples/options/hpc-options.yaml), and ["ml-options.yaml"](examples/options/ml-options.yaml). Any options specified in these files overwrite the defaults.
+In a run directory, user-options are defined in YAML files named ["dft-options.yaml"](example/options/dft-options.yaml), ["hpc-options.yaml"](example/options/hpc-options.yaml), and ["ml-options.yaml"](example/options/ml-options.yaml). Any options specified in these files overwrite the defaults.
 
-Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](examples/options) directory.
+Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](example/options) directory.
 
 Then, data can be generated and model training and evaluation run with the following:
 
