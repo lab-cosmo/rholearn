@@ -1,6 +1,6 @@
 [project]
 name = "rholearn"
-version = "0.0.0"
+version = "0.1.0"
 description = "Metatensor-torch framework for learning electronic densities decomposed on a basis"
 authors = [{name = "Joseph W. Abbott", email = "joseph.william.abbott@gmail.com"}]
 dependencies = [
