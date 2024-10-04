@@ -1,5 +1,7 @@
 # *rholearn*
 
+[![DOI](https://zenodo.org/badge/865612226.svg)](https://doi.org/10.5281/zenodo.13891848)
+
 **A torch-based workflow for training descriptor-based equivariant neural networks to predict real-space electronic density scalar fields of molecules and materials at near-DFT accuracy.**
 
 **Author**: [Joseph W. Abbott](https://linktr.ee/josephabbott), PhD Student @ Lab COSMO, EPFL
