@@ -1,0 +1,24 @@
+abstract: <p>A torch-based workflow for training descriptor-based equivariant neural
+  networks to predict real-space electronic density scalar fields of molecules and
+  materials at near-DFT accuracy.</p>
+authors:
+- affiliation: Lab COSMO, EPFL
+  family-names: Abbott
+  given-names: Joseph W.
+  orcid: 0000-0002-0502-6790
+- affiliation: Lab COSMO, EPFL
+  family-names: Fraux
+  given-names: Guillaume
+- affiliation: Lab COSMO, EPFL
+  family-names: Ceriotti
+  given-names: Michele
+  orcid: 0000-0003-2571-2832
+cff-version: 1.2.0
+date-released: '2024-10-04'
+doi: 10.5281/zenodo.13891848
+license:
+- cc-by-4.0
+repository-code: https://github.com/lab-cosmo/rholearn/tree/v0.1.0
+title: 'lab-cosmo/rholearn: rholearn v0.1.0'
+type: software
+version: v0.1.0
