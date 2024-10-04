@@ -1,11 +1,11 @@
 # Absolute path to the top directory where FHI-aims output data will be stored
-DATA_DIR: /home/abbott/codes/rholearn/tests/rholearn/generate_example_data/qm7/data
+DATA_DIR: /path/to/rholearn/tests/rholearn/generate_example_data/qm7/data
 
 # Absolute path to .xyz file containing the whole dataset
-XYZ: /home/abbott/codes/rholearn/tests/rholearn/generate_example_data/qm7/data/qm7.xyz
+XYZ: /path/to/rholearn/tests/rholearn/generate_example_data/qm7/data/qm7.xyz
 
 # The FHI-aims run command, including absolute path to aims executable
-AIMS_COMMAND: "srun /home/abbott/codes/aims_files/binaries/aims.240925.scalapack.mpi.x < control.in > aims.out"
+AIMS_COMMAND: "srun /path/to/aims.x < control.in > aims.out"
 
 # Absolute path to species defaults directory
-SPECIES_DEFAULTS: /home/abbott/codes/rholearn/tests/rholearn/generate_example_data/qm7/aims_species/edensity/tight/default
+SPECIES_DEFAULTS: /path/to/rholearn/tests/rholearn/generate_example_data/qm7/aims_species/edensity/tight/default

@@ -56,7 +56,8 @@ cd rholearn
 pip install --extra-index-url https://download.pytorch.org/whl/cpu .
 ```
 
-Run a few (currently limited) tests on loss functions with: `pytest tests/rholearn/loss.py`
+Running `tox` from the top directory will run linting and formatting.
+To run some tests (currently limited to testing `rholearn.loss`), run `pytest tests/rholearn/loss.py`.
 
 ### Installing `FHI-aims`
 
