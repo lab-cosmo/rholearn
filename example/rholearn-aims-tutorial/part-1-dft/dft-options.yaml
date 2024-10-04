@@ -2,7 +2,7 @@
 DATA_DIR: /path/to/rholearn/example/rholearn-aims-tutorial/part-1-dft/data
 
 # Absolute path to .xyz file containing the whole dataset
-XYZ: /path/to/rholearn/example/rholearn-aims-tutorial/part-1-dft/data/qm7_16.xyz
+XYZ: /path/to/rholearn/example/rholearn-aims-tutorial/part-1-dft/data/qm7_128.xyz
 
 # The FHI-aims run command, including absolute path to aims executable
 AIMS_COMMAND: "srun /path/to/aims.x < control.in > aims.out"
