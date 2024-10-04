@@ -1,6 +1,6 @@
 # *rholearn*
 
-[![DOI](https://zenodo.org/badge/865612226.svg)](https://doi.org/10.5281/zenodo.13891848)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.13891847.svg)](https://doi.org/10.5281/zenodo.13891847)
 
 **A torch-based workflow for training descriptor-based equivariant neural networks to predict real-space electronic density scalar fields of molecules and materials at near-DFT accuracy.**
 
@@ -98,3 +98,21 @@ rholearn.eval()
 ```
 
 **Tutorial:** for a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn`.
+
+
+# Citing this work
+
+```bib
+@software{abbott_2024_13891847,
+  author       = {Abbott, Joseph W. and
+                  Fraux, Guillaume and
+                  Ceriotti, Michele},
+  title        = {lab-cosmo/rholearn: rholearn v0.1.0},
+  month        = oct,
+  year         = 2024,
+  publisher    = {Zenodo},
+  version      = {v0.1.0},
+  doi          = {10.5281/zenodo.13891847},
+  url          = {https://doi.org/10.5281/zenodo.13891847}
+}
+```
