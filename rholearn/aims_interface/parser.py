@@ -178,7 +178,7 @@ def get_prodbas_radii(aims_output_dir: str, fname: Optional[str] = "aims.out") -
     file.
     """
 
-    with open(join(aims_output_dir, "aims.out"), "r") as f:
+    with open(join(aims_output_dir, fname), "r") as f:
         lines = f.readlines()
 
     for _i, line in enumerate(lines):

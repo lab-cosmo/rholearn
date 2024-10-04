@@ -68,15 +68,25 @@ There are also useful tutorials on the basics of running `FHI-aims` [here](https
 
 ### Basic usage
 
-User defined settings are specified in settings modules that are locally imported as below. Some variables, such as paths to data sources, are madatory, and others are optional variables that overwrite pre-existing defaults.
+In a run directory, user-options are defined in YAML files named ["dft-options.yaml"](examples/options/dft-options.yaml), ["hpc-options.yaml"](examples/options/hpc-options.yaml), and ["ml-options.yaml"](examples/options/ml-options.yaml). Any options specified in these files overwrite the defaults.
 
-Basic usage is as follows:
+Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](examples/options) directory.
+
+Then, data can be generated and model training and evaluation run with the following:
 
 ```python
-# Specify user options "dft-options.yaml", "hpc-options.yaml", and "ml-options.yaml"
-# ...
-# then:
 import rholearn
+from rholearn.aims_interface import scf, ri_fit
+
+# Run SCF
+scf.run_scf()
+
+# ...
+
+# Run RI fitting
+ri_fit.run_ri_fit()
+
+# ...
 
 # Train a model
 rholearn.train()
