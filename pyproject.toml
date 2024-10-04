@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Metatensor-torch framework for learning electronic densities decomposed on a basis"
 authors = [
     {name = "Joseph W. Abbott", email = "joseph.william.abbott@gmail.com"},
-    {name = "Guillaume Fraux", email = "luthaf@luthaf.fr"},
+    {name = "Guillaume Fraux", email = "guillaume.fraux@epfl.ch"},
 ]
 dependencies = [
     "ase",
