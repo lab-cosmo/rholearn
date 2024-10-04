@@ -3,26 +3,20 @@ Module to handle XYZ files and their conversion to :py:class:`chemfiles.Frame` o
 """
 
 from os.path import exists
-from typing import List, Optional, Tuple, Union
-
-import numpy as np
-import torch
+from typing import List, Optional, Union
 
 import ase
-from ase.geometry.analysis import Analysis
-from chemfiles import Atom, Frame, Trajectory
-
-import vesin
-
 import metatensor
 import metatensor.torch
+import numpy as np
+import torch
+import vesin
+from ase.geometry.analysis import Analysis
+from chemfiles import Atom, Frame, Trajectory
 from metatensor.torch.atomistic import System
 
-from rholearn.utils import (
-    ATOMIC_NUMBERS_TO_SYMBOLS,
-    ATOMIC_SYMBOLS_TO_NUMBERS,
-    _dispatch,
-)
+from rholearn.utils import ATOMIC_NUMBERS_TO_SYMBOLS, ATOMIC_SYMBOLS_TO_NUMBERS
+from rholearn.utils._dispatch import int_array
 
 
 def read_frames_from_xyz(
@@ -78,10 +72,10 @@ def atomic_number_to_atomic_symbol(number: int) -> str:
     If ``number`` corresponds to a proton number on the periodic table, the standard
     chemical symbol is returned.
 
-    If ``number`` is greater than 1000, it is assumed to be
-    a pseudo-species. Returned is a string of the form "X_n", where X is the standard
-    chemical species of the element with proton number Z ``number % 1000``, and n is given
-    by ``number // 1000``.
+    If ``number`` is greater than 1000, it is assumed to be a pseudo-species. Returned
+    is a string of the form "X_n", where X is the standard chemical species of the
+    element with proton number Z ``number % 1000``, and n is given by ``number //
+    1000``.
     """
     assert number >= 0, f"Invalid atomic number: {number}. Must be a positive integer."
     if number in ATOMIC_NUMBERS_TO_SYMBOLS:
@@ -259,5 +253,5 @@ def get_neighbor_list(
 
     return mts.Labels(
         names=["system", "atom_1", "atom_2"],
-        values=_dispatch.int_array(labels_values, backend=backend),
+        values=int_array(labels_values, backend=backend),
     )

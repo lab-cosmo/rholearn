@@ -78,13 +78,17 @@ def write_aims_sbatch_array(
         if dm_restart_dir is not None:
             f.write("# Create symlink to DM restart dir\n")
             f.write(f"RESTART_FILE_DIR={dm_restart_dir('${ARRAY_IDX}')}\n")
-            f.write("for rfile in $(ls $RESTART_FILE_DIR/D_spin_*); do ln -s $rfile $(basename $rfile); done\n")
+            f.write(
+                "for rfile in $(ls $RESTART_FILE_DIR/D_spin_*);"
+                + " do ln -s $rfile $(basename $rfile); done\n"
+            )
 
         # Write the run AIMS command
         f.write("# Run AIMS\n")
         f.write(aims_command)
 
     return
+
 
 def write_python_sbatch_array(
     fname: str,
@@ -120,7 +124,7 @@ def write_python_sbatch_array(
                 f"#SBATCH --output={join(run_dir('%a'), f'slurm_{timestamp()}.out')}\n"
             )
 
-       # Get the structure idx in the sbatch array
+        # Get the structure idx in the sbatch array
         f.write("\n# Get the structure idx from the SLURM job ID\n")
         f.write("ARRAY_IDX=${SLURM_ARRAY_TASK_ID}\n\n")
 
@@ -133,7 +137,7 @@ def write_python_sbatch_array(
         f.write("# Run Python\n")
         f.write(f"{python_command}\n")
 
-    return     
+    return
 
 
 def run_script(run_dir: str, command: str):

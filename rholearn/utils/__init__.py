@@ -1,7 +1,3 @@
-import numpy as np
-from metatensor import TensorMap, TensorBlock, Labels
-
-
 # ===== For converting between atomic numbers and symbols
 
 ATOMIC_SYMBOLS_TO_NUMBERS = {

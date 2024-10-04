@@ -2,9 +2,9 @@
 
 ## Overview
 
-This tutorial follows two parts: 1) data generation with `FHI-aims` and 2) model training with `rholearn`. Follow the instructions in the README files in subdirectories [`part-1-dft`](part-1-dft/README.md) and [`part-2-ml`](part-2-ml/README.md). 
-
-First, data is generated with `FHI-aims` for a subset of structures from the QM7 database that contain atom types H, C, O, N. This involves a two step process: a) converging SCF calculations to compute the self consistent electron density for each frame, then b) decomposing the electron density scalar field onto a fitted basis set.
+This tutorial follows two parts: 1) data generation with `FHI-aims` and 2) model training with `rholearn`. Follow the instructions in the README files in subdirectories [`part-1-dft`](part-1-dft/README.md) and [`part-2-ml`](part-2-ml/README.md). The data used is 128-molecule subset of the QM7 database that contain atom types H, C, O, N. 
+ 
+First, data is generated with `FHI-aims` in a two step process: a) converging SCF calculations to compute the self consistent electron density for each frame, then b) decomposing the electron density scalar field onto a fitted basis set.
 
 Second, the reference data output from the first step, in the form of fitting coefficients, projections, and overlap matrices, form the dataset for training a machine learning model. In `rholearn`, arbitrary descriptor-based equivariant neural networks can be used to learn the mapping from nuclear coordinates to basis set expansion coefficients. 
 

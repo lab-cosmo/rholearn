@@ -72,19 +72,16 @@ User defined settings are specified in settings modules that are locally importe
 Basic usage is as follows:
 
 ```python
+# Specify user options "dft-options.yaml", "hpc-options.yaml", and "ml-options.yaml"
+# ...
+# then:
 import rholearn
 
-# User settings
-from dft_settings import DFT_SETTINGS
-from hpc_settings import HPC_SETTINGS
-from ml_settings import ML_SETTINGS  # training settings
-from net import NET  # custom NN architecture
-
 # Train a model
-rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET)
+rholearn.train()
 
 # Evaluate
-rholearn.eval(DFT_SETTINGS, ML_SETTINGS, HPC_SETTINGS)
+rholearn.eval()
 ```
 
-**Tutorial:** for a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/) on data generation using `FHI-aims` and model training using `rholearn`.
+**Tutorial:** for a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn`.

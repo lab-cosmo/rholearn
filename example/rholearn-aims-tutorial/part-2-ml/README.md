@@ -3,17 +3,17 @@
 
 ## 2.0: TLDR of requried commands
 
-After copying `part-1-dft/dft_settings.py` and `part-1-dft/hpc_settings.py` to this directory and modifying the `ml_settings.py` as desired, the commands needed to train and evalute a model are below. For a full explanation of each, read on to the following sections.
+After copying [dft-options.yaml](../part-1-dft/dft-options.yaml) and [hpc-options.yaml](../part-1-dft/hpc-options.yaml) to this directory and modifying [ml-options.yaml](ml-options.yaml) as desired, the commands needed to train and evalute a model are below. For a full explanation of each, read on to the following sections.
 
 ```bash
-# Copy dft_settings.py and hpc_settings.py into this directory, and modify ml_settings.py if desired
+# Copy dft-options.yaml and hpc-options.yaml into this directory, and modify ml-options.yaml if desired
 # ...
 
 # Train
-python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from net import NET; rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET);'
+python -c 'import rholearn; rholearn.train()'
 
 # Eval
-python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from hpc_settings import HPC_SETTINGS; rholearn.eval(DFT_SETTINGS, ML_SETTINGS, HPC_SETTINGS);'
+python -c 'import rholearn; rholearn.eval()'
 ```
 
 Where each command can be wrapped in an HPC submission script.
@@ -26,22 +26,22 @@ The end-to-end pipeline central to `rholearn` is shown in the following schema.
 
 **Constructing an equivariant descriptor.** A system of interest is expressed as decorated (i.e. atom-typed) nuclear coordinates. Basis functions are placed on each atomic center to generate a smooth atomic density field, and local atomic environments (within a cutoff) are defined for each atom. In the spherical basis, higher body order descriptors are built by taking Clebsch-Gordan tensor products of atom-centered densities. These transformations comprise the steps in constructing an equivariant descriptor that encodes geometric information of the molecule/material. **`rascaline`** is used to generate the atomic density descriptor, and perform the Clebsch-Gordan products to increase body order.
 
-**Predicting on a basis**. The local user-settings file `net.py` and default file `rholearn.settings.defaults.net_default` contains the neural network (NN) architecture used to initialize the model. By default, this is just a simple linear layer. The equivariant descriptor is passed through the NN to form a vector a predicted coefficients on the output layer. The transformations of the NN are defined by learnable weight tensors that are optimized during training. **`metatensor-learn`** modules are used to construct dataset and dataloaders, and define NN architectures.
+**Predicting on a basis**. The local user-settings file [ml-options.yaml](ml-options.yaml) and default file `rholearn.settings.defaults.ml-defaults.yaml` contains the neural network (NN) architecture used to initialize the model. By default, this is just a simple linear layer. The equivariant descriptor is passed through the NN to form a vector a predicted coefficients on the output layer. The transformations of the NN are defined by learnable weight tensors that are optimized during training. **`metatensor-learn`** modules are used to construct dataset and dataloaders, and define NN architectures.
 
 **Building the field.** Finally, the predicted coefficients are passed back into the electronic structure code **`FHI-aims`** to rebuild the real-space electronic density.
 
 ## 2.2: Specify ML settings
 
-First copy files `part-1-dft/{dft_settings,hpc_settings}.py` into the current directory `part-2-ml/`. Next, inspect the user settings file `ml_settings.py` and edit the appropriate fields.
+First copy files [dft-options.yaml](../part-1-dft/dft-options.yaml) and [hpc-options.yaml](../part-1-dft/hpc-options.yaml) into the current directory [part-2-ml](.). Next, inspect the user settings file [ml-options.yaml](ml-options.yaml) and edit the appropriate fields.
 
 You can also inspect the default DFT settings, which can be printed with:
 ```python
 import pprint
-from rholearn.settings.defaults import ml_defaults
+from rholearn.options import get_options
 
-pprint.pprint(ml_defaults.ML_DEFAULTS)
+pprint.pprint(get_options("ml"))
 ```
-Any of these can be modified by specification in the local file `ml_settings.py`.
+Any of these can be modified by specification in the local file [ml-options.yaml](ml-options.yaml).
 
 ## 2.3: Train a model
 
@@ -50,17 +50,13 @@ Any of these can be modified by specification in the local file `ml_settings.py`
 ```python
 import rholearn
 
-from dft_settings import DFT_SETTINGS
-from ml_settings import ML_SETTINGS
-from net import NET
-
-rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET)
+rholearn.train()
 
 # Alternatively: a one-liner for the command line
-python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from net import NET; rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET);'
+python -c 'import rholearn; rholearn.train()'
 ```
 
-The file `hpc_settings.py` is not used by the `rholearn.train` function. Instead, **to run training on a cluster**, the one-line python command can be incorporated into an HPC run script. In this case, ensure that the calculation is run from within the `rho` conda environment. For slurm schedulers, this is done by running the script from the `rho` env with the `--get-user-env` flag in the submission script:
+The file [hpc-options.yaml](hpc-options.yaml) is not used by the `rholearn.train` function. Instead, **to run training on a cluster**, the one-line python command can be incorporated into an HPC run script. In this case, ensure that the calculation is run from within the `rho` conda environment. For slurm schedulers, this is done by running the script from the `rho` env with the `--get-user-env` flag in the submission script:
 
 ```bash
 #!/bin/bash
@@ -71,10 +67,10 @@ The file `hpc_settings.py` is not used by the `rholearn.train` function. Instead
 #SBATCH --ntasks-per-node=40
 #SBATCH --get-user-env
 
-python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from net import NET; rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET);'
+python -c 'import rholearn; rholearn.train()'
 ```
 
-Once running, the model is trained by gradient descent over a number of epochs, and information is logged to `part-2-ml/logs/train.log`. There is some preamble regarding model architecture, and cross-validation splits of data, then information from the training loop is printed, of the form:
+Once running, the model is trained by gradient descent over a number of epochs, and information is logged to `part-2-ml/outputs/train.log`. There is some preamble regarding model architecture, and cross-validation splits of data, then information from the training loop is printed, of the form:
 ```bash
 epoch 0 train_loss 1259567.8746709786 val_loss 732263.7933436064 dt_train 0.492 dt_val 0.132 lr 0.1
 epoch 100 train_loss 50.45056127415962 val_loss 255.06999044889676 dt_train 0.337 dt_val 0.128 lr 0.01
@@ -103,18 +99,14 @@ The model can then be evaluated on the test set as follows:
 ```python
 import rholearn
 
-from dft_settings import DFT_SETTINGS
-from ml_settings import ML_SETTINGS
-from hpc_settings import HPC_SETTINGS
-
-rholearn.eval(DFT_SETTINGS, ML_SETTINGS, HPC_SETTINGS)
+rholearn.eval()
 
 # Alternatively: a one-liner for the command line
-python -c 'import rholearn; from dft_settings import DFT_SETTINGS; from ml_settings import ML_SETTINGS; from hpc_settings import HPC_SETTINGS; rholearn.eval(DFT_SETTINGS, ML_SETTINGS, HPC_SETTINGS);'
+python -c 'import rholearn; rholearn.eval()'
 ```
-As evaluation of the model requires rebuilding the field in FHI-aims, the `rholearn.eval` function requires specification of the local file `hpc_settings.py`.
+As evaluation of the model requires rebuilding the field in FHI-aims, the `rholearn.eval` function requires specification of the local file [hpc-options.yaml](hpc-options.yaml).
 
-Once running, information is logged to `part-2-ml/logs/eval.log`. First, model inference is performed: the nuclear coordinates of the test structures are transformed into an atom-centered density correlation descriptor, then passed through the neural network to yield the predicted coefficients on the RI basis. Then, the predicted coefficient vector for each structure is passed (in parallel) back into `FHI-aims`. The fields are built in real space and the model error is evaluated per structure.
+Once running, information is logged to `part-2-ml/outputs/eval.log`. First, model inference is performed: the nuclear coordinates of the test structures are transformed into an atom-centered density correlation descriptor, then passed through the neural network to yield the predicted coefficients on the RI basis. Then, the predicted coefficient vector for each structure is passed (in parallel) back into `FHI-aims`. The fields are built in real space and the model error is evaluated per structure.
 
 ```bash
 system 31 abs_error 38.81341 norm 31.99745 nmae 121.30156 squared_error 134.77636
@@ -133,54 +125,14 @@ using $\rho^{\text{SCF}}(\textbf{r})$ as the reference density computes the erro
 
 ## 2.5: Custom model architectures
 
-One can define an arbitrary neural network architecture using `ModuleMap` objects from `metatensor-learn`, or by using the available convenience layers in `metatensor.torch.learn.nn`. For example, a small equivariance-preserving neural network comprised of `[LayerNorm, Linear, Tanh, Linear]` layers collected in a `Sequential` wrapper would be defined in the following way, and placed in the local user-settings file `net.py`:
+Instead of a simple linear layer that maps the equivariant descriptor, one can define an arbitrary neural network architecture using `ModuleMap` objects from `metatensor-learn`, or by using the available convenience layers in `metatensor.torch.learn.nn` controlled by architecture specification in [ml-options.yaml](ml-options.yaml). For example, a small equivariance-preserving neural network comprised of `[LayerNorm, Linear, Tanh, Linear]` layers collected in a `Sequential` wrapper would be defined in the following way:
 
-```python
-def net(
-    in_keys: mts.Labels,
-    in_properties: List[mts.Labels],
-    out_properties: List[mts.Labels],
-    dtype: torch.dtype,
-    device: torch.device,
-) -> torch.nn.Module:
-    """Builds a NN sequential ModuleMap."""
-    invariant_key_idxs = [
-        i for i, key in enumerate(in_keys) if key["o3_lambda"] == 0
-    ]
-    sequential = nn.Sequential(
-        in_keys,
-        nn.InvariantLayerNorm(  # layer norm only applied to invariants
-            in_keys=in_keys,
-            invariant_key_idxs=invariant_key_idxs,
-            in_features=[
-                len(in_props)
-                for i, in_props in enumerate(in_properties)
-                if i in invariant_key_idxs
-            ],
-            dtype=dtype,
-            device=device,
-        ),
-        nn.EquivariantLinear(
-            in_keys=in_keys,
-            invariant_key_idxs=invariant_key_idxs,
-            in_features=[len(in_props) for in_props in in_properties],
-            out_properties=out_properties,
-            bias=True,  # bias is only applied to invariants
-            dtype=dtype,
-            device=device,
-        ),
-        nn.InvariantTanh(  # Tanh only applied to invariants
-            in_keys=in_keys, invariant_key_=invariant_key_idxs,
-        ),
-        nn.EquivariantLinear(
-            in_keys=in_keys,
-            invariant_key_idxs=invariant_key_idxs,
-            in_features=10,
-            out_properties=out_properties,
-            bias=True,  # bias is only applied to invariants
-            dtype=dtype,
-            device=device,
-        ),
-    )
-    return sequential
+```yaml
+DESCRIPTOR_LAYER_NORM: True
+NN_LAYERS:
+  - EquivariantLinear: {out_features: 128}
+  - InvariantTanh: {}
+  - EquivariantLinear: {in_features: 128}
 ```
+
+The `in_features` of the first layer and the `out_features`/`out_properties` of the last layer are determined on runtime by the descriptor hyperparameters and target basis definition, respectively.

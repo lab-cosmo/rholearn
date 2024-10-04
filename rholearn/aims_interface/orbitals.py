@@ -1,21 +1,20 @@
 """
 Module to calculate Kohn-Sham orbital weights for constructing scalar fields in
-FHI-aims, and 
+FHI-aims, and to handle outputs in terms of orbitals.
 """
 
 from os.path import join
 from typing import List, Optional, Union
 
-from chemfiles import Frame
 import numpy as np
-from scipy.interpolate import interp1d
+from chemfiles import Frame
 from scipy.integrate import cumulative_trapezoid
+from scipy.interpolate import interp1d
 from scipy.optimize import brentq
 from scipy.special import erf
 
 from rholearn.aims_interface import io, parser
 from rholearn.utils import system
-
 
 # ===== HOMO / LUMO =====
 
@@ -69,7 +68,7 @@ def get_homo_kso_idx(kso_info: Union[str, np.ndarray], max_occ: int = 2) -> np.n
     1-indexed.
     """
     if isinstance(kso_info, str):
-        kso_info = get_ks_orbital_info(kso_info, as_array=True)
+        kso_info = parser.get_ks_orbital_info(kso_info, as_array=True)
     kso_info = np.sort(kso_info, order="energy_eV")
 
     occ_states = kso_info[np.where(kso_info["occ"] > (max_occ / 2))[0]]
@@ -85,7 +84,7 @@ def get_lumo_kso_idx(kso_info: Union[str, np.ndarray], max_occ: int = 2) -> np.n
     1-indexed.
     """
     if isinstance(kso_info, str):
-        kso_info = get_ks_orbital_info(kso_info, as_array=True)
+        kso_info = parser.get_ks_orbital_info(kso_info, as_array=True)
     kso_info = np.sort(kso_info, order="energy_eV")
 
     unocc_states = kso_info[np.where(kso_info["occ"] < (max_occ / 2))[0]]
@@ -196,12 +195,12 @@ def _get_kso_weight_vector_ildos_analytical(
     W(a) = 0.5
         * k_weight(a)
         * (
-            erf( (\epsilon_a - \epsilon - \epsilon_1) / (\sigma * \sqrt(2)) )
-            - erf( (\epsilon_a - \epsilon - \epsilon_2) / (\sigma * \sqrt(2))
+            erf( (\\epsilon_a - \\epsilon - \\epsilon_1) / (\\sigma * \\sqrt(2)) )
+            - erf( (\\epsilon_a - \\epsilon - \\epsilon_2) / (\\sigma * \\sqrt(2))
     )
 
-    where \epsilon is the `target_energy`, \epsilon_1 is the lower and \epsilon_2 the
-    higher of the `energy_window`, g is the Gaussian function of width \sigma,
+    where \\epsilon is the `target_energy`, \\epsilon_1 is the lower and \\epsilon_2 the
+    higher of the `energy_window`, g is the Gaussian function of width \\sigma,
     k_weight(a) is the weight of the k-point that accounts for symmetry in the Brillouin
     zone.
     """
@@ -243,22 +242,22 @@ def _get_kso_weight_vector_ildos_numerical(
 ) -> np.ndarray:
     """
     For each KS-orbital, the weight is given by the numerical integral of a Gaussian
-    centered on the energy eigenvalue \epsilon_a, evaluated at the `target_energy`:
+    centered on the energy eigenvalue \\epsilon_a, evaluated at the `target_energy`:
 
     W(a) = (V / n)
         * k_weight(a)
-        * \sum_{\epsilon'=\epsilon + \epsilon_1}^{\epsilon + \epsilon_2}
-        * g(\epsilon' - \epsilon_a, \sigma)
+        * \\sum_{\\epsilon'=\\epsilon + \\epsilon_1}^{\\epsilon + \\epsilon_2}
+        * g(\\epsilon' - \\epsilon_a, \\sigma)
 
-    where \epsilon is the target energy, \epsilon_1 is the lower and \epsilon_2 the
+    where \\epsilon is the target energy, \\epsilon_1 is the lower and \\epsilon_2 the
     higher of the `energy_window`, n is the number of energy grid points, g is the
-    Gaussian function of width \sigma, k_weight(a) is the weight of the k-point that
+    Gaussian function of width \\sigma, k_weight(a) is the weight of the k-point that
     accounts for symmetry in the Brillouin zone.
     """
     kso_info = parser.get_ks_orbital_info(aims_output_dir)
 
     if target_energy is None:  # Find the energy of the HOMO
-        homo_idx = find_homo_kso_idxs(kso_info)[0]
+        homo_idx = parser.find_homo_kso_idxs(kso_info)[0]
         target_energy = kso_info[homo_idx - 1]["energy_eV"]  # 1-indexing!
 
     W_vect = []
@@ -420,9 +419,9 @@ def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = Non
             pdos_data[(sym, "total")] = {}
         pdos_data[(sym, "total")][i] = pdos_atom[:, 1]
 
-        for l in range(pdos_atom.shape[1] - 2):
-            if (sym, l) not in pdos_data:
-                pdos_data[(sym, l)] = {}
-            pdos_data[(sym, l)][i] = pdos_atom[:, l + 2]
+        for o3_lambda in range(pdos_atom.shape[1] - 2):
+            if (sym, o3_lambda) not in pdos_data:
+                pdos_data[(sym, o3_lambda)] = {}
+            pdos_data[(sym, o3_lambda)][i] = pdos_atom[:, o3_lambda + 2]
 
     return energy, pdos_data

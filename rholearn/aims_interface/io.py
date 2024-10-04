@@ -4,12 +4,11 @@ For reading and writing files in the AIMS interface.
 
 import datetime
 from os.path import exists, join
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 
-from chemfiles import Atom, Frame, UnitCell
 import numpy as np
+from chemfiles import Atom, Frame, UnitCell
 
-from rholearn.utils import ATOMIC_NUMBERS_TO_SYMBOLS
 from rholearn.utils import system
 
 
@@ -39,7 +38,7 @@ def write_geometry(frame: Frame, write_dir: str) -> None:
         )
         # Write lattice vectors
         if hasattr(frame, "cell"):
-            if not all([l == 0 for l in frame.cell.lengths]):
+            if not all([length == 0 for length in frame.cell.lengths]):
                 for lattice_vector in frame.cell.matrix:
                     f.write(
                         f"lattice_vector"
@@ -226,15 +225,13 @@ def get_control_parameters_for_frame(
         "cube total_density" in extra_settings.get("output", [])
     ):
         if cube_settings is None:
-            raise ValueError(
-                "Must pass `cube_settings` if 'cube' in `extra_settings`"
-            )
+            raise ValueError("Must pass `cube_settings` if 'cube' in `extra_settings`")
         if cube_settings.get("slab", False) is True:
             control_params.update(
                 _get_aims_cube_edges_slab(
                     frame,
                     cube_settings.get("n_points"),
-                    z_min=None,  # we want the the cube file generated on the full system
+                    z_min=None,  # want cube file generated on full system
                     z_max=None,
                 )
             )
@@ -292,7 +289,7 @@ def _get_aims_cube_edges_slab(
             ]
         ]
     ):
-        warnings.warn(f"Cell not cubic: {slab.cell.matrix}")
+        raise ValueError(f"Cell not cubic: {slab.cell.matrix}")
 
     x_min = np.min(slab.positions[:, 0])
     x_max = np.max(slab.positions[:, 0])
@@ -314,13 +311,17 @@ def _get_aims_cube_edges_slab(
     center = (min_coord + max_coord) / 2
 
     return {
-        "cubes": f"cube origin {np.round(center[0], 3)} {np.round(center[1], 3)} {np.round(center[2], 3)}"
+        "cubes": f"cube origin {np.round(center[0], 3)} "
+        + f"{np.round(center[1], 3)} {np.round(center[2], 3)}"
         + "\n"
-        + f"cube edge {n_points[0]} {np.round(max_lengths[0] / (n_points[0] - 1), 3)} 0.0 0.0"
+        + f"cube edge {n_points[0]} "
+        + f"{np.round(max_lengths[0] / (n_points[0] - 1), 3)} 0.0 0.0"
         + "\n"
-        + f"cube edge {n_points[1]} 0.0 {np.round(max_lengths[1] / (n_points[1] - 1), 3)} 0.0"
+        + f"cube edge {n_points[1]} 0.0 "
+        + f"{np.round(max_lengths[1] / (n_points[1] - 1), 3)} 0.0"
         + "\n"
-        + f"cube edge {n_points[2]} 0.0 0.0 {np.round(max_lengths[2] / (n_points[2] - 1), 3)}"
+        + f"cube edge {n_points[2]} 0.0 0.0 "
+        + f"{np.round(max_lengths[2] / (n_points[2] - 1), 3)}"
         + "\n",
     }
 
@@ -350,7 +351,7 @@ def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:
     max_coord = np.array([x_max, y_max, z_max])
     center = (min_coord + max_coord) / 2
 
-    if np.all([l > 0 for l in frame.cell.lengths]):
+    if np.all([length > 0 for length in frame.cell.lengths]):
         # check square cell
         if not np.all(
             [
@@ -365,7 +366,7 @@ def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:
                 ]
             ]
         ):
-            warnings.warn(f"Cell not square: {frame.cell.matrix}")
+            raise ValueError(f"Cell not square: {frame.cell.matrix}")
         # take lattice vectors as cube edges
         max_lengths = [
             frame.cell.matrix[0, 0],
@@ -377,12 +378,16 @@ def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:
         max_lengths = (max_coord - min_coord) + np.array([5, 5, 5])
 
     return {
-        "cubes": f"cube origin {np.round(center[0], 3)} {np.round(center[1], 3)} {np.round(center[2], 3)}"
+        "cubes": f"cube origin {np.round(center[0], 3)} "
+        + f"{np.round(center[1], 3)} {np.round(center[2], 3)}"
         + "\n"
-        + f"cube edge {n_points[0]} {np.round(max_lengths[0] / (n_points[0] - 1), 3)} 0.0 0.0"
+        + f"cube edge {n_points[0]} "
+        + f"{np.round(max_lengths[0] / (n_points[0] - 1), 3)} 0.0 0.0"
         + "\n"
-        + f"cube edge {n_points[1]} 0.0 {np.round(max_lengths[1] / (n_points[1] - 1), 3)} 0.0"
+        + f"cube edge {n_points[1]} 0.0 "
+        + f"{np.round(max_lengths[1] / (n_points[1] - 1), 3)} 0.0"
         + "\n"
-        + f"cube edge {n_points[2]} 0.0 0.0 {np.round(max_lengths[2] / (n_points[2] - 1), 3)}"
+        + f"cube edge {n_points[2]} 0.0 0.0 "
+        + f"{np.round(max_lengths[2] / (n_points[2] - 1), 3)}"
         + "\n",
     }

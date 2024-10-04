@@ -1,7 +1,3 @@
-[build-system]
-requires = ["rust", "cmake", "setuptools>=40.8.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "rholearn"
 version = "0.0.0"
@@ -9,15 +5,10 @@ description = "Metatensor-torch framework for learning electronic densities deco
 authors = [{name = "Joseph W. Abbott", email = "joseph.william.abbott@gmail.com"}]
 dependencies = [
     "ase",
-    "ipython",
-    "jupyter",
-    "jupyterlab",
     "numpy",
-    "pandas",
-    "pytest",
+    "pyyaml",
     "py3dmol",
-    "sympy",
-    "wheel",
+    "tox",
 
     # Dependencies from the COSMO (+ friends) stack
     "chemfiles",
@@ -25,16 +16,25 @@ dependencies = [
     "metatensor[torch]",
     "rascaline-torch @ git+https://github.com/luthaf/rascaline@0311925f9aba803a0744a48d448567a9b65316e1#subdirectory=python/rascaline-torch",
     "vesin",
-    "wigners",
 
     # Extra dependencies
     "cube_toolz @ git+https://github.com/funkymunkycool/Cube-Toolz",
 ]
+keywords = ["machine learning", "electronic densities"]
+
+[project.urls]
+repository = "https://github.com/lab-cosmo/rholearn"
+author = "https://github.com/jwa7"
+
+[build-system]
+requires = ["rust", "cmake", "setuptools>=40.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = [
     "rholearn",
     "rholearn.aims_interface",
-    "rholearn.settings",
+    "rholearn.options",
     "rholearn.utils",
 ]
+package-data = {"rholearn" = ["rholearn/options/*.yaml"]}

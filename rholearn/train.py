@@ -1,145 +1,185 @@
 import os
 import time
 from os.path import exists, join
-from typing import Callable
+from typing import List
 
 import torch
 
 from rholearn import train_utils
+from rholearn.loss import RhoLoss
 from rholearn.model import RhoModel
-from rholearn.settings.defaults import dft_defaults, ml_defaults, net_default
-from rholearn.utils import convert, io, system
-from rholearn.utils.io import pickle_dict
-from rholearn.utils.utils import timestamp
+from rholearn.options import get_options
+from rholearn.utils import convert, io, system, utils
 
 
-def train(dft_settings: dict, ml_settings: dict, net: Callable):
+def train():
     """
     Runs model training in the following steps:
         1. Build/load model, optimizer, and scheduler (if applicable)
-        2. Create corss-validation splits of frames
+        2. Create cross-validation splits of frames
         3. Build training and validation datasets and dataloaders
         4. For each training epoch:
-            a. Peform training step, at every epoch
+            a. Perform training step, at every epoch
             b. Perform validation step, at certain intervals
             c. Log results, at certain intervals
             d. Checkpoint model, at certain intervals
     """
     t0_setup = time.time()
+    dft_options, ml_options = _get_options()
 
-    # ===== Set global settings =====
-    _set_settings_globally(dft_settings, ml_settings, net)  # must be in this order
-    _check_input_settings()
+    # Read frames and frame indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
+    frame_idxs = list(range(len(frames)))
+
+    _check_input_settings(dft_options, ml_options, frame_idxs)
 
     # ===== Setup =====
-    log_path = join(ML_DIR, "logs/train.log")
-    io.log(log_path, f"===== BEGIN =====")
-    io.log(log_path, f"Working directory: {ML_DIR}")
+    os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
+    log_path = join(ml_options["ML_DIR"], "outputs/train.log")
+    io.log(log_path, "===== BEGIN =====")
+    io.log(log_path, f"Working directory: {ml_options['ML_DIR']}")
 
     # Random seed and dtype
-    torch.manual_seed(SEED)
-    torch.set_default_dtype(TORCH["dtype"])
+    torch.manual_seed(ml_options["SEED"])
+    torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
 
     # ===== Build model, optimizer, and scheduler if applicable =====
 
     # Initialize or load pre-trained model, initialize new optimizer and scheduler
-    if TRAIN.get("restart_epoch") is None:
+    if ml_options["TRAIN"]["restart_epoch"] is None:
 
-        epochs = torch.arange(TRAIN["n_epochs"] + 1)
+        epochs = torch.arange(ml_options["TRAIN"]["n_epochs"] + 1)
 
-        if PRETRAINED_MODEL is None:  # initialize model from scratch
+        if ml_options["PRETRAINED_MODEL"] is None:  # initialize model from scratch
             io.log(log_path, "Initializing model")
             atom_types = None  # TODO: generalise to subsets
             target_basis = convert.get_global_basis_set(
                 [
-                    io.unpickle_dict(join(PROCESSED_DIR(A), "basis_set.pickle"))
-                    for A in FRAME_IDXS
+                    io.unpickle_dict(
+                        join(dft_options["PROCESSED_DIR"](A), "basis_set.pickle")
+                    )
+                    for A in frame_idxs
                 ],
                 center_types=atom_types,
             )
             model = RhoModel(
                 target_basis=target_basis,
-                spherical_expansion_hypers=SPHERICAL_EXPANSION_HYPERS,
-                n_correlations=N_CORRELATIONS,
-                net=NET,
-                get_selected_atoms=GET_SELECTED_ATOMS,
-                **TORCH,
-                angular_cutoff=ANGULAR_CUTOFF,
+                spherical_expansion_hypers=ml_options["SPHERICAL_EXPANSION_HYPERS"],
+                n_correlations=ml_options["N_CORRELATIONS"],
+                layer_norm=ml_options["DESCRIPTOR_LAYER_NORM"],
+                nn_layers=ml_options["NN_LAYERS"],
+                get_selected_atoms=ml_options["GET_SELECTED_ATOMS"],
+                device=torch.device(ml_options["TRAIN"]["device"]),
+                dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
+                angular_cutoff=ml_options["ANGULAR_CUTOFF"],
             )
 
         else:  # Use pre-trained model
-            io.log(log_path, "Using pre-trained model")
-            model = PRETRAINED_MODEL
+            io.log(
+                log_path,
+                f"Using pre-trained model from path {ml_options['PRETRAINED_MODEL']}",
+            )
+            model = torch.load(ml_options["PRETRAINED_MODEL"])
 
         # Initialize optimizer
         io.log(log_path, "Initializing optimizer")
-        optimizer = OPTIMIZER(filter(lambda p: p.requires_grad, model.parameters()))
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            **ml_options["OPTIMIZER_ARGS"],
+        )
 
         # Initialize scheduler
         scheduler = None
-        if SCHEDULER is not None:
+        if ml_options["SCHEDULER_ARGS"] is not None:
             io.log(log_path, "Using LR scheduler")
-            scheduler = SCHEDULER(optimizer)
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer, **ml_options["SCHEDULER_ARGS"]
+            )
 
     # Load model, optimizer, scheduler from checkpoint for restarting training
     else:
 
-        epochs = torch.arange(TRAIN["restart_epoch"] + 1, TRAIN["n_epochs"] + 1)
+        epochs = torch.arange(
+            ml_options["TRAIN"]["restart_epoch"] + 1,
+            ml_options["TRAIN"]["n_epochs"] + 1,
+        )
 
         # Load model
         io.log(log_path, "Loading model from checkpoint")
-        model = torch.load(join(CHKPT_DIR(TRAIN["restart_epoch"]), "model.pt"))
+        model = torch.load(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "model.pt",
+            )
+        )
 
         # Load optimizer
-        io.log(log_path, "Loading optimizing from checkpoint")
-        optimizer = torch.load(join(CHKPT_DIR(TRAIN["restart_epoch"]), "optimizer.pt"))
+        io.log(log_path, "Loading optimizer from checkpoint")
+        optimizer = torch.load(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "optimizer.pt",
+            )
+        )
 
         # Load scheduler
         scheduler = None
-        if exists(join(CHKPT_DIR(TRAIN["restart_epoch"]), "optimizer.pt")):
+        if exists(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "scheduler.pt",
+            )
+        ):
             io.log(log_path, "Loading scheduler from checkpoint")
             scheduler = torch.load(
-                join(CHKPT_DIR(TRAIN["restart_epoch"]), "optimizer.pt")
+                join(
+                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                    "scheduler.pt",
+                )
             )
 
     # Try a model save/load
-    torch.save(model, join(ML_DIR, "model.pt"))
-    torch.load(join(ML_DIR, "model.pt"))
-    os.remove(join(ML_DIR, "model.pt"))
-    io.log(log_path, str(model).replace("\n", f"\n# {timestamp()}"))
+    torch.save(model, join(ml_options["ML_DIR"], "model.pt"))
+    torch.load(join(ml_options["ML_DIR"], "model.pt"))
+    os.remove(join(ml_options["ML_DIR"], "model.pt"))
+    io.log(log_path, str(model).replace("\n", f"\n# {utils.timestamp()}"))
+
+    # Initialize loss functions
+    train_loss_fn = RhoLoss(**ml_options["TRAIN_LOSS_FN_ARGS"])
+    val_loss_fn = RhoLoss(**ml_options["VAL_LOSS_FN_ARGS"])
 
     # ===== Create datasets and dataloaders =====
 
     # First define subsets of system IDs for crossval
-    io.log(log_path, f"Split system IDs into subsets")
+    io.log(log_path, "Split system IDs into subsets")
     all_subset_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
-        frame_idxs=FRAME_IDXS,
-        n_train=N_TRAIN,
-        n_val=N_VAL,
-        n_test=N_TEST,
-        seed=SEED,
+        frame_idxs=frame_idxs,
+        n_train=ml_options["N_TRAIN"],
+        n_val=ml_options["N_VAL"],
+        n_test=ml_options["N_TEST"],
+        seed=ml_options["SEED"],
     )
-    pickle_dict(
-        join(ML_DIR, "crossval_idxs.pickle"),
+    io.pickle_dict(
+        join(ml_options["ML_DIR"], "outputs", "crossval_idxs.pickle"),
         {
             "train": all_subset_id[0],
             "val": all_subset_id[1],
             "test": all_subset_id[2],
-        }
+        },
     )
-    all_frames = system.read_frames_from_xyz(XYZ)
 
     # Train dataset
     io.log(log_path, f"Training system ID: {all_subset_id[0]}")
     io.log(log_path, "Build training dataset")
     train_dataset = train_utils.get_dataset(
-        frames=[all_frames[A] for A in all_subset_id[0]],
+        frames=[frames[A] for A in all_subset_id[0]],
         frame_idxs=list(all_subset_id[0]),
         model=model,
-        data_names=TRAIN_DATA_NAMES,
-        load_dir=PROCESSED_DIR,
-        overlap_cutoff=OVERLAP_CUTOFF,
-        **TORCH,
+        data_names=ml_options["TRAIN_DATA_NAMES"],
+        load_dir=dft_options["PROCESSED_DIR"],
+        overlap_cutoff=ml_options["OVERLAP_CUTOFF"],
+        device=torch.device(ml_options["TRAIN"]["device"]),
+        dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
     )
 
     # Train dataloader
@@ -151,7 +191,7 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
             "different_keys": "union",
         },
         dloader_kwargs={
-            "batch_size": TRAIN["batch_size"],
+            "batch_size": ml_options["TRAIN"]["batch_size"],
             "shuffle": True,
         },
     )
@@ -160,13 +200,14 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
     io.log(log_path, f"Validation system ID: {all_subset_id[1]}")
     io.log(log_path, "Build validation dataset")
     val_dataset = train_utils.get_dataset(
-        frames=[all_frames[A] for A in all_subset_id[1]],
+        frames=[frames[A] for A in all_subset_id[1]],
         frame_idxs=list(all_subset_id[1]),
         model=model,
-        data_names=VAL_DATA_NAMES,
-        load_dir=PROCESSED_DIR,
+        data_names=ml_options["VAL_DATA_NAMES"],
+        load_dir=dft_options["PROCESSED_DIR"],
         overlap_cutoff=None,  # no cutoff for validation
-        **TORCH,
+        device=torch.device(ml_options["TRAIN"]["device"]),
+        dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
     )
 
     # Validation dataloader
@@ -178,14 +219,14 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
             "different_keys": "union",
         },
         dloader_kwargs={
-            "batch_size": TRAIN["batch_size"],
+            "batch_size": ml_options["TRAIN"]["batch_size"],
             "shuffle": True,
         },
     )
 
     dt_setup = time.time() - t0_setup
     io.log(log_path, train_utils.report_dt(dt_setup, "Setup complete"))
-    
+
     # ===== Training loop =====
 
     io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1]}")
@@ -199,7 +240,7 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
         train_loss = train_utils.epoch_step(
             dataloader=train_dloader,
             model=model,
-            loss_fn=TRAIN_LOSS_FN,
+            loss_fn=train_loss_fn,
             optimizer=optimizer,
             check_metadata=epoch == 0,
         )
@@ -211,13 +252,13 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
         dt_val_via_c = torch.nan
         # dt_val_via_w = torch.nan
         lr = torch.nan
-        if epoch % TRAIN["val_interval"] == 0:
+        if epoch % ml_options["TRAIN"]["val_interval"] == 0:
             # a) using target_c only
             t0_val_via_c = time.time()
             val_loss_via_c = train_utils.epoch_step(
                 dataloader=val_dloader,
                 model=model,
-                loss_fn=VAL_LOSS_FN,
+                loss_fn=val_loss_fn,
                 optimizer=None,
                 use_target_w=False,
                 check_metadata=epoch == 0,
@@ -229,7 +270,7 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
             # val_loss_via_w = train_utils.epoch_step(
             #     dataloader=val_dloader,
             #     model=model,
-            #     loss_fn=VAL_LOSS_FN,
+            #     loss_fn=val_loss_fn,
             #     optimizer=None,
             #     use_target_w=True,
             #     check_metadata=epoch == 0,
@@ -245,7 +286,7 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
                 lr = scheduler._last_lr[0]
 
         # Log results on this epoch
-        if epoch % TRAIN["log_interval"] == 0:
+        if epoch % ml_options["TRAIN"]["log_interval"] == 0:
             log_msg = (
                 f"epoch {epoch}"
                 f" train_loss {train_loss}"
@@ -259,16 +300,16 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
             io.log(log_path, log_msg)
 
         # Checkpoint on this epoch
-        if epoch % TRAIN["checkpoint_interval"] == 0 and epoch != 0:
+        if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0 and epoch != 0:
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, chkpt_dir=CHKPT_DIR(epoch)
+                model, optimizer, scheduler, chkpt_dir=ml_options["CHKPT_DIR"](epoch)
             )
 
         # Save checkpoint if best validation loss
         if val_loss_via_c < best_val_loss:
             best_val_loss = val_loss_via_c
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, chkpt_dir=CHKPT_DIR("best")
+                model, optimizer, scheduler, chkpt_dir=ml_options["CHKPT_DIR"]("best")
             )
 
     # Finish
@@ -277,61 +318,46 @@ def train(dft_settings: dict, ml_settings: dict, net: Callable):
     io.log(log_path, f"Best validation loss: {best_val_loss:.5f}")
 
 
-def _set_settings_globally(
-    dft_settings: dict, ml_settings: dict, net: Callable
-) -> None:
+def _get_options():
     """
-    Sets the settings globally. Ensures the defaults are set first and then
-    overwritten with user settings.
+    Gets the DFT and ML options. Ensures the defaults are set first and then overwritten
+    with user settings.
     """
-    # Update DFT and ML defaults with user settings
-    dft_settings_ = dft_defaults.DFT_DEFAULTS
-    ml_settings_ = ml_defaults.ML_DEFAULTS
-    dft_settings_.update(dft_settings)
-    ml_settings_.update(ml_settings)
 
-    # Set them globally
-    for settings_dict in [dft_settings_, ml_settings_]:
-        for key, value in settings_dict.items():
-            globals()[key] = value
+    dft_options = get_options("dft")
+    ml_options = get_options("ml")
 
-    # Then set the NN architecture
-    if net is None:
-        globals()["NET"] = net_default.NET
-    else:
-        globals()["NET"] = net
-
-    # Set some directories
-    globals()["SCF_DIR"] = lambda frame_idx: join(DATA_DIR, "raw", f"{frame_idx}")
-    globals()["RI_DIR"] = lambda frame_idx: join(
-        DATA_DIR, "raw", f"{frame_idx}", RI_FIT_ID
+    # Set some extra directories
+    dft_options["SCF_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
-    globals()["PROCESSED_DIR"] = lambda frame_idx: join(
-        DATA_DIR, "processed", f"{frame_idx}", RI_FIT_ID
+    dft_options["RI_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
     )
+    dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+    )
+    ml_options["ML_DIR"] = os.getcwd()
+    ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")
 
-    # Run directory is just the current directory
-    globals()["ML_DIR"] = os.getcwd()
-
-    # Callable directory path to checkpoint. parametrized by epoch number
-    globals()["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")
-
-    # Directory for the log file(s)
-    os.makedirs(join(ML_DIR, "logs"), exist_ok=True)
+    return dft_options, ml_options
 
 
-def _check_input_settings():
+def _check_input_settings(dft_options: dict, ml_options: dict, frame_idxs: List[int]):
     """
-    Checks input settings for validatity. Assumes they have already been set
-    globally, i.e. by :py:fun:`set_settings_gloablly`.
+    Checks input settings for validity. Assumes they have already been set
+    globally, i.e. by :py:fun:`set_settings_globally`.
     """
-    if not os.path.exists(XYZ):
-        raise FileNotFoundError(f"XYZ file not found at path: {XYZ}")
-    if N_TRAIN <= 0:
+    if not os.path.exists(dft_options["XYZ"]):
+        raise FileNotFoundError(f"XYZ file not found at path: {dft_options['XYZ']}")
+    if ml_options["N_TRAIN"] <= 0:
         raise ValueError("must have size non-zero training set")
-    if N_VAL <= 0:
+    if ml_options["N_VAL"] <= 0:
         raise ValueError("must have size non-zero validation set")
-    if len(FRAME_IDXS) < N_TRAIN + N_VAL + N_TEST:
+    if (
+        len(frame_idxs)
+        < ml_options["N_TRAIN"] + ml_options["N_VAL"] + ml_options["N_TEST"]
+    ):
         raise ValueError(
             "the sum of sizes of training, validation, and test"
             " sets must be <= the number of frames"

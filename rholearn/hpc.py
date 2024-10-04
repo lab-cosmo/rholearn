@@ -1,9 +1,10 @@
 """
 Module for defining and running HPC scripts for model training.
 """
+
 import os
-from os.path import exists, join
 import shutil
+from os.path import exists, join
 
 
 def run_training_sbatch(run_dir: str, python_command: str, **kwargs) -> None:

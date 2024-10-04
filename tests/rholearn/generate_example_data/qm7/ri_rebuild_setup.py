@@ -3,11 +3,10 @@ import shutil
 
 import numpy as np
 
-from dft_settings import *
-
+DATA_DIR = "/home/abbott/codes/rholearn/tests/rholearn/generate_example_data/qm7/data"
 ri_dir = lambda A: join(DATA_DIR, "raw", f"{A}", "edensity")
 
-for A in FRAME_IDXS:
+for A in range(3):
     shutil.move(
         join(ri_dir(A), "ri_restart_coeffs.out"),
         join(ri_dir(A), "ri_restart_coeffs.out.copy"),

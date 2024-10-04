@@ -2,16 +2,12 @@
 Module for masking :py:class:`chemfile.Frame` objects
 """
 
-from itertools import product
 from typing import Callable, List, Optional, Tuple, Union
-
-import numpy as np
-import torch
-
-from chemfiles import Frame
 
 import metatensor
 import metatensor.torch
+import numpy as np
+from chemfiles import Frame
 
 from rholearn.utils import _dispatch, system
 

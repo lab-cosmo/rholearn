@@ -1,3 +1,0 @@
-This directory contains the settings files needed to use `rholearn`. The `defaults/` folder contains default values for running DFT data generation with `FHI-aims` and ML training with `rholearn`. 
-
-The `user/` folder lets user settings be defined which override the default settings. All files found in `user` should be copied to the user's run directory. They are intended to be used as local module imports, to exist in the directory in which `rholearn` commands should be run.

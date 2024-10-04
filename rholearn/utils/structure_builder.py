@@ -1,10 +1,7 @@
-import itertools
 import ase
-import ase.io
 import ase.build
+import ase.io
 import numpy as np
-import chemiscope
-
 
 
 def perturb_slab(slab, noise_scale_factor: float = 0.25):
@@ -41,7 +38,9 @@ def perturb_slab(slab, noise_scale_factor: float = 0.25):
     ]
 
     for idx in idxs_to_perturb:
-        perturbed_slab.positions[idx] += np.random.rand(*perturbed_slab.positions[idx].shape) * noise_scale_factor
+        perturbed_slab.positions[idx] += (
+            np.random.rand(*perturbed_slab.positions[idx].shape) * noise_scale_factor
+        )
 
     return perturbed_slab
 
@@ -67,7 +66,9 @@ def perturb_slab_constrain_bottom_layers(
     else:
         # Identify the indices of the Si atoms on the bottom layer
         z_min = np.min(perturbed_slab.positions[:, 2])
-        idxs_constrained = np.where(perturbed_slab.positions[:, 2] <= z_min + constrained_slice_distance)[0]
+        idxs_constrained = np.where(
+            perturbed_slab.positions[:, 2] <= z_min + constrained_slice_distance
+        )[0]
         idxs_constrained = np.array(idxs_constrained)
 
     # Perturb the unconstrained atoms
@@ -78,7 +79,9 @@ def perturb_slab_constrain_bottom_layers(
     ]
 
     for idx in idxs_to_perturb:
-        perturbed_slab.positions[idx] += np.random.rand(*perturbed_slab.positions[idx].shape) * noise_scale_factor
+        perturbed_slab.positions[idx] += (
+            np.random.rand(*perturbed_slab.positions[idx].shape) * noise_scale_factor
+        )
 
     return perturbed_slab
 
@@ -90,20 +93,24 @@ def adsorb_h2_on_slab(slab, height: float, lattice_param: float = 5.431020511):
     """
     # Build the H2 molecule: bond length is 0.74 Angstrom
     h2_bond = 0.74
-    h2 = ase.Atoms("H2", positions=[[0, 0, 0], [h2_bond + 2 * np.random.rand(1)[0], 0, 0]])
+    h2 = ase.Atoms(
+        "H2", positions=[[0, 0, 0], [h2_bond + 2 * np.random.rand(1)[0], 0, 0]]
+    )
 
     ase.build.add_adsorbate(
         slab,
         h2,
         position=np.random.rand(2) * lattice_param,  # randomnly places on cell surrface
-        height=1.5 + np.random.rand(1)[0],  # height randomly perturbed from 1.5 above surface
+        height=1.5
+        + np.random.rand(1)[0],  # height randomly perturbed from 1.5 above surface
     )
 
     return slab
 
 
 def build_pristine_bulk_si(
-    size: tuple, lattice_param: float = 5.431020511,
+    size: tuple,
+    lattice_param: float = 5.431020511,
 ):
     bulk = ase.build.bulk("Si", crystalstructure="diamond", a=lattice_param)
     bulk = bulk.repeat((2, 2, 2))
@@ -112,7 +119,7 @@ def build_pristine_bulk_si(
     bulk.info["category"] = "pristine"
 
     return bulk
-    
+
 
 def build_pristine_passivated_si_slab(
     size: tuple, lattice_param: float = 5.431020511, passivate: bool = True
@@ -216,7 +223,7 @@ def make_slab_topside_dimer_pair(
         if buckled:
             slab[idx1].position[1] += buckled
             slab[idx2].position[1] -= buckled
-            slab[idx1].position[2] += (buckled * tilt_factor)
-            slab[idx2].position[2] -= (buckled * tilt_factor)
+            slab[idx1].position[2] += buckled * tilt_factor
+            slab[idx2].position[2] -= buckled * tilt_factor
 
     return slab

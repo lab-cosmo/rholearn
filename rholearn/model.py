@@ -4,12 +4,10 @@ Module containing the global net class `RhoModel`.
 
 from typing import Callable, List, Optional, Tuple, Union
 
-from chemfiles import Atom, Frame
-import torch
-
 import metatensor.torch as mts
-from metatensor.torch.learn.nn import ModuleMap
-
+import torch
+from chemfiles import Atom, Frame
+from metatensor.torch.learn import nn
 from rascaline.torch import SphericalExpansion
 from rascaline.torch.utils import DensityCorrelations
 
@@ -49,6 +47,8 @@ class _DescriptorCalculator(torch.nn.Module):
             max_angular = angular_cutoff
         self._max_angular = max_angular
         self._angular_cutoff = angular_cutoff
+        self._dtype = dtype
+        self._device = device
 
         self._density_correlations = DensityCorrelations(
             n_correlations=n_correlations,
@@ -57,6 +57,35 @@ class _DescriptorCalculator(torch.nn.Module):
             dtype=dtype,
             device=device,
         )
+
+    def compute_density(
+        self,
+        frames: List[Frame],
+        selected_samples: Optional[mts.Labels] = None,
+    ) -> mts.TensorMap:
+        """
+        Computes the density for the given frames.
+
+        If ``selected_samples`` is passed, the density :py:class:`TensorMap` is
+        re-indexed along the "system" dimension to match the indices in
+        ``selected_samples``.
+        """
+        # Compute Spherical Expansion
+        density = self._spherical_expansion.compute(
+            system.frame_to_atomistic_system(frames),
+            selected_samples=selected_samples,
+        )
+
+        # Move 'neighbor_type' to properties, accounting for neighbor types not
+        # necessarily present in the frames but present globally
+        density = density.keys_to_properties(
+            keys_to_move=mts.Labels(
+                names=["neighbor_type"],
+                values=torch.tensor(self._atom_types).reshape(-1, 1),
+            )
+        )
+
+        return density
 
     def compute(
         self,
@@ -90,20 +119,8 @@ class _DescriptorCalculator(torch.nn.Module):
         :param selected_keys: a :py:class:`mts.Labels` object containing the keys to
             select from the descriptor. If None, all keys are computed.
         """
-        # Compute Spherical Expansion
-        density = self._spherical_expansion.compute(
-            system.frame_to_atomistic_system(frames),
-            selected_samples=selected_samples,
-        )
-
-        # Move 'neighbor_type' to properties, accounting for neighbor types not
-        # necessarily present in the frames but present globally
-        density = density.keys_to_properties(
-            keys_to_move=mts.Labels(
-                names=["neighbor_type"],
-                values=torch.tensor(self._atom_types).reshape(-1, 1),
-            )
-        )
+        # Compute density
+        density = self.compute_density(frames, selected_samples)
 
         # Compute lambda-SOAP
         if compute_metadata:
@@ -147,11 +164,13 @@ class _DescriptorCalculator(torch.nn.Module):
 
     def __repr__(self) -> str:
         return (
-            f"DescriptorCalculator("
+            "DescriptorCalculator("
             f"\n\tatom_types={self._atom_types},"
             f"\n\tspherical_expansion_hypers={self._spherical_expansion_hypers},"
             f"\n\tn_correlations={self._n_correlations},"
-            f"\n\tmax_angular={self._max_angular},"
+            f"\n\tangular_cutoff={self._angular_cutoff},"
+            f"\n\tdtype={self._dtype},"
+            f"\n\tdevice={self._device},"
             "\n)"
         )
 
@@ -195,7 +214,8 @@ class RhoModel(torch.nn.Module):
         target_basis: mts.Labels,
         spherical_expansion_hypers: dict,
         n_correlations: int,
-        net: Callable,
+        layer_norm: bool = False,
+        nn_layers: Optional[List[dict]] = None,
         get_selected_atoms: Optional[Callable] = None,
         dtype: torch.dtype = torch.float64,
         device: torch.device = "cpu",
@@ -231,6 +251,9 @@ class RhoModel(torch.nn.Module):
 
         # Set metadata
         self._in_keys = _target_basis_set_to_in_keys(self._target_basis)
+        self._invariant_key_idxs = [
+            i for i, key in enumerate(self._in_keys) if key["o3_lambda"] == 0
+        ]
         self._in_properties = _atom_types_to_descriptor_basis_in_properties(
             self._in_keys,
             self._descriptor_calculator,
@@ -241,25 +264,98 @@ class RhoModel(torch.nn.Module):
         )
 
         # Set NN
-        self._set_net(net)
+        self._set_net(layer_norm, nn_layers)
 
         # For learning on a subset of atoms
         self._get_selected_atoms = get_selected_atoms
 
-    def _set_net(self, net: Callable) -> None:
+    def _set_net(
+        self, layer_norm: bool = False, nn_layers: Optional[List[callable]] = None
+    ) -> None:
         """
         Initializes the NN by calling the `net` Callable passed to the constructor. The
         NN is initialized with the model metadata, i.e. the attributes ``_in_keys``,
         ``_in_properties``, and ``_out_properties``, and the torch settings ``_dtype``
         and ``_device``.
         """
-        self._net = net(
-            in_keys=self._in_keys,
-            in_properties=self._in_properties,
-            out_properties=self._out_properties,
-            dtype=self._dtype,
-            device=self._device,
-        )
+        if nn_layers is None:
+            nn_layers = []
+
+        init_layers = []
+
+        # Start with a layer norm if requested
+        if layer_norm:
+            init_layers.append(
+                nn.InvariantLayerNorm(
+                    in_keys=self._in_keys,
+                    invariant_key_idxs=self._invariant_key_idxs,
+                    in_features=[
+                        len(in_props)
+                        for key, in_props in zip(self._in_keys, self._in_properties)
+                        if key["o3_lambda"] == 0
+                    ],
+                )
+            )
+
+        # If no layers passed, just use a linear layer
+        if len(nn_layers) == 0:
+            init_layers.append(
+                nn.EquivariantLinear(
+                    in_keys=self._in_keys,
+                    invariant_key_idxs=self._invariant_key_idxs,
+                    in_features=[len(in_props) for in_props in self._in_properties],
+                    out_properties=self._out_properties,
+                    bias=True,
+                    dtype=self._dtype,
+                    device=self._device,
+                )
+            )
+        else:
+            for layer_i, layer in enumerate(nn_layers):
+                # Update layer-specific args with ones required by all modules
+                assert len(layer) == 1, "Each layer must be a dict with a single key"
+                module_name, args = layer.popitem()
+                args.update(
+                    dict(
+                        in_keys=self._in_keys,
+                        invariant_key_idxs=self._invariant_key_idxs,
+                    )
+                )
+                if module_name == "EquivariantLinear":
+                    args.update(dict(dtype=self._dtype, device=self._device))
+
+                # If the first layer, the in_features need setting dynamically
+                if layer_i == 0:
+                    assert (
+                        "out_features" in args
+                    ), "'out_features' must be passed for the first layer"
+                    args.update(
+                        dict(
+                            in_features=[
+                                len(in_props) for in_props in self._in_properties
+                            ]
+                        )
+                    )
+
+                # If the last layer, the out_properties need setting dynamically instead
+                # of out_features
+                if layer_i == len(nn_layers) - 1:
+                    assert (
+                        "in_features" in args
+                    ), "'in_features' must be passed for the last layer"
+                    assert (
+                        "out_features" not in args
+                    ), "'out_features' must not be passed for the last layer"
+                    assert (
+                        "out_properties" not in args
+                    ), "'out_properties' must be passed for the last layer"
+                    args.update(dict(out_properties=self._out_properties))
+
+                # Initialize the layer
+                init_layers.append(getattr(nn, module_name)(**args))
+
+        # Build the sequential NN
+        self._net = nn.Sequential(self._in_keys, *init_layers)
 
     def _get_selected_samples(self, frames: List[Frame]) -> mts.Labels:
         """
@@ -457,7 +553,7 @@ class RhoModel(torch.nn.Module):
                 f"Expected `frames` to be a list of Frames, got {type(frames)}"
             )
 
-        if not all([isinstance(f, Frame) for f in frames]):
+        if not all([isinstance(frame, Frame) for frame in frames]):
             raise ValueError("Expected `frames` to be a List[Frame]")
 
         if frame_idxs is None:
@@ -478,7 +574,7 @@ class RhoModel(torch.nn.Module):
 
             # Unmask the predictions if necessary
             predictions_unmasked = []
-            for frame, frame_idx, pred in zip(systems, system_ids, predictions):
+            for frame, frame_idx, pred in zip(frames, frame_idxs, predictions):
                 pred_unmasked = mask.unmask_coeff_vector(
                     coeff_vector=pred,
                     frame=frame,
@@ -492,13 +588,13 @@ class RhoModel(torch.nn.Module):
 
             return predictions_unmasked
 
-    def __getitem__(self, i: int) -> ModuleMap:
+    def __getitem__(self, i: int) -> nn.ModuleMap:
         """
         Gets the i-th module (i.e. corresponding to the i-th key/block) of the NN.
         """
         return self._net.module_map[i]
 
-    def __iter__(self) -> Tuple[mts.LabelsEntry, ModuleMap]:
+    def __iter__(self) -> Tuple[mts.LabelsEntry, nn.ModuleMap]:
         """
         Iterates over the model's NN modules, returning the key and block NN in a tuple.
         """
@@ -506,20 +602,20 @@ class RhoModel(torch.nn.Module):
 
     def __repr__(self) -> str:
         representation = (
-            f"RhoModel("
-            + f"\n  target_basis="
+            "RhoModel("
+            + "\n  target_basis="
             + str(self._target_basis).replace("\t", "\t").replace("\n", "\n  ")
-            + f"\n  descriptor_calculator="
+            + "\n  descriptor_calculator="
             + str(self._descriptor_calculator).replace("\t", "\t").replace("\n", "\n  ")
         )
-        representation += f"\n  net="
+        representation += "\n  net="
         for key, block_nn in self:
             representation += f"\n    {key}:"
-            representation += f"\n\t" + str(block_nn).replace("\n", "\n\t")
+            representation += "\n\t" + str(block_nn).replace("\n", "\n\t")
 
         representation += f"\n  dtype={self._dtype},"
         representation += f"\n  device={self._device},"
-        representation += f"\n)"
+        representation += "\n)"
 
         return representation
 
@@ -540,7 +636,9 @@ def _reindex_tensormap(
     assert tensor.sample_names[0] == "system"
 
     index_mapping = {i: A for i, A in enumerate(system_ids)}
-    new_row = lambda row: [index_mapping[row[0].item()]] + [i for i in row[1:]]
+
+    def new_row(row):
+        return [index_mapping[row[0].item()]] + [i for i in row[1:]]
 
     new_blocks = []
     for block in tensor.blocks():

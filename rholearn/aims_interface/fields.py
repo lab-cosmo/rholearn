@@ -3,7 +3,7 @@ Module for computing quantities from scalar fields output by FHI-aims, i.e. 2D a
 grid coordinates and scalar values.
 """
 
-from typing import Callable, Dict, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 

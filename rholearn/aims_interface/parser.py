@@ -4,12 +4,11 @@ Module for parsing outputs from FHI-aims calculations.
 
 import os
 from os.path import exists, join
-from typing import Callable, List, Optional, Tuple, Union
-
-from chemfiles import Frame
-import numpy as np
+from typing import Callable, Optional, Tuple, Union
 
 import metatensor as mts
+import numpy as np
+from chemfiles import Frame
 
 from rholearn.aims_interface import fields, io, parser
 from rholearn.utils import convert, system, utils
@@ -163,11 +162,11 @@ def extract_basis_set_info(
         lmax[symbol] = species_lmax
 
         # Parse the nmax values and store. There are (lmax + 1) angular channels
-        for l in range(species_lmax + 1):
-            line = block[l + 1]
-            assert l == int(line.split()[3])
+        for o3_lambda in range(species_lmax + 1):
+            line = block[o3_lambda + 1]
+            assert o3_lambda == int(line.split()[3])
             species_nmax = int(line.split()[6])
-            nmax[(symbol, l)] = species_nmax
+            nmax[(symbol, o3_lambda)] = species_nmax
 
     return lmax, nmax
 
@@ -182,17 +181,17 @@ def get_prodbas_radii(aims_output_dir: str, fname: Optional[str] = "aims.out") -
     with open(join(aims_output_dir, "aims.out"), "r") as f:
         lines = f.readlines()
 
-    for i, line in enumerate(lines):
+    for _i, line in enumerate(lines):
         if "Constructing auxiliary basis (full product) ..." in line:
             break
 
     assert (
-        lines[i + 5].split()
+        lines[_i + 5].split()
         == "  | Species   l  charge radius    field radius  multipol momen".split()
     )
 
     prodbas_data = {}
-    for line in lines[i + 6 :]:
+    for line in lines[_i + 6 :]:
 
         line = line.split()
         if len(line) != 9:
@@ -248,13 +247,9 @@ def get_max_overlap_radius(
     max_radius_1, max_radius_2 = 0, 0
     for key in prodbas_data.keys():
         if key[0] == sym_1:
-            max_radius_1 = max(
-                max_radius_1, float(prodbas_data[key]["charge_radius"])
-            )
+            max_radius_1 = max(max_radius_1, float(prodbas_data[key]["charge_radius"]))
         if key[0] == sym_2:
-            max_radius_2 = max(
-                max_radius_2, float(prodbas_data[key]["charge_radius"])
-            )
+            max_radius_2 = max(max_radius_2, float(prodbas_data[key]["charge_radius"]))
 
     return max_radius_1 + max_radius_2
 
@@ -418,8 +413,8 @@ def parse_aims_out(aims_output_dir: str, fname: str = "aims.out") -> dict:
                 }
 
         # Final total energy
-        # Example:
-        # | Total energy of the DFT / Hartree-Fock s.c.f. calculation : -2078.592149198 eV
+        # Example: | Total energy of the DFT ...
+        # ... / Hartree-Fock s.c.f. calculation : -2078.592149198 eV
         if (
             split[:11]
             == "| Total energy of the DFT / Hartree-Fock s.c.f. calculation :".split()
@@ -428,10 +423,10 @@ def parse_aims_out(aims_output_dir: str, fname: str = "aims.out") -> dict:
 
         # Extract the total time for the calculation
         # Example:
-        # Detailed time accounting                     :  max(cpu_time)    wall_clock(cpu1)
-        # | Total time                                  :       28.746 s          28.901 s
-        # | Preparation time                            :        0.090 s           0.173 s
-        # | Boundary condition initalization            :        0.031 s           0.031 s
+        # Detailed time accounting                  :  max(cpu_time)    wall_clock(cpu1)
+        # | Total time                               :       28.746 s          28.901 s
+        # | Preparation time                         :        0.090 s           0.173 s
+        # | Boundary condition initalization         :        0.031 s           0.031 s
         if split[:4] == "| Total time :".split():
             calc_info["time"] = {
                 "max(cpu_time)": float(split[4]),
@@ -457,9 +452,9 @@ def parse_aims_out(aims_output_dir: str, fname: str = "aims.out") -> dict:
         if split[:2] == "Product basis:".split():
             assert lines[line_i + 1].split()[:3] == "| charge radius:".split()
             assert lines[line_i + 2].split()[:3] == "| field radius:".split()
-            assert (
-                lines[line_i + 3].split()[:9]
-                == "| Species   l  charge radius    field radius  multipol momen".split()
+            assert lines[line_i + 3].split()[:9] == (
+                "| Species   l  charge radius    "
+                "field radius  multipol momen".split()
             )
 
             tmp_line_i = line_i + 4
@@ -631,9 +626,7 @@ def process_ri_outputs(
     # ===== RI overlap
 
     # Load the overlap matrix to a full square matrix
-    ovlp_numpy = load_ovlp_matrix_to_square_matrix_numpy(
-        aims_output_dir, "ri_ovlp.out"
-    )
+    ovlp_numpy = load_ovlp_matrix_to_square_matrix_numpy(aims_output_dir, "ri_ovlp.out")
 
     # Convert to TensorMap and save
     ovlp = convert.overlap_matrix_ndarray_to_tensormap(
@@ -645,7 +638,7 @@ def process_ri_outputs(
         backend="numpy",
     )
     mts.save(
-        join(save_dir, f"ri_ovlp.npz"),
+        join(save_dir, "ri_ovlp.npz"),
         utils.make_contiguous_numpy(ovlp),
     )
 
@@ -653,7 +646,7 @@ def process_ri_outputs(
     if ovlp_cond_num:
         cond_num = np.linalg.cond(ovlp_numpy)
         pickle_dict(
-            join(save_dir, f"ri_ovlp_cond_num.pickle"),
+            join(save_dir, "ri_ovlp_cond_num.pickle"),
             {"cond": cond_num},
         )
 
@@ -715,4 +708,3 @@ def process_df_error(
     )
 
     return
-

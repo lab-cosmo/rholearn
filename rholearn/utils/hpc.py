@@ -1,9 +1,12 @@
 """
 Module for HPC utilities.
 """
+
 import os
 from os.path import join
+
 from rholearn.utils.utils import timestamp
+
 
 def write_python_sbatch(
     fname: str,
@@ -25,9 +28,7 @@ def write_python_sbatch(
 
         # slurm_out to the run dir, with a timestamp
         if "output" not in slurm_params:
-            f.write(
-                f"#SBATCH --output={join(run_dir, f'slurm_{timestamp()}.out')}\n"
-            )
+            f.write(f"#SBATCH --output={join(run_dir, f'slurm_{timestamp()}.out')}\n")
 
         # Define the run directory and cd to it
         f.write("# Define the run directory and cd into it\n")

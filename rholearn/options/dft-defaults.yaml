@@ -1,0 +1,42 @@
+# Physical settings for running FHI-aims
+BASE_AIMS:
+  xc: pbe0
+  spin: none
+  charge: 0
+  relativistic: atomic_zora scalar
+
+# For SCF procedure
+SCF:
+  elsi_restart: write 1000
+  output: cube total_density
+
+# For RI-fitting procedure
+RI:
+  ri_full_output: true
+  ri_density_restart: write
+  default_max_l_prodbas: null
+  default_prodbas_acc: 1e-5
+  elsi_restart: read
+  ri_skip_scf: true
+  ri_ovlp_write_triu: true
+
+# For rebuilding fields
+REBUILD:
+  ri_density_restart: read 0
+  ri_full_output: true
+  default_max_l_prodbas: null  # must be the same as RI option
+  default_prodbas_acc: 1e-5    # must be the same as RI option
+  output: cube total_density
+
+# Cube grid settings
+CUBE:
+  n_points: [100, 100, 100]
+
+# A unique ID for the RI fit procedure
+RI_FIT_ID: edensity
+
+# The name of the electronic density field
+FIELD_NAME: edensity
+
+# For sample masking
+MASK: null
