@@ -47,7 +47,7 @@ def run_scf() -> None:
         )
 
     # Write submission script and run FHI-aims via sbatch array
-    fname = "run-aims-scf.sh"
+    fname = f"run-aims-scf-{hpc.timestamp()}.sh"
     hpc.write_aims_sbatch_array(
         fname=fname,
         aims_command=dft_options["AIMS_COMMAND"],
@@ -85,7 +85,7 @@ def process_scf() -> None:
     )
 
     # Process the RI fit output for each frame
-    fname = "run-process-scf.sh"
+    fname = f"run-process-scf-{hpc.timestamp()}.sh"
     hpc.write_python_sbatch_array(
         fname=fname,
         array_idxs=frame_idxs,

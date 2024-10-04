@@ -151,7 +151,7 @@ def rebuild_field(
         )
 
     # Write submission script and run FHI-aims via sbatch array
-    fname = "run-aims-rebuild.sh"
+    fname = f"run-aims-rebuild-{hpc.timestamp()}.sh"
     hpc.write_aims_sbatch_array(
         fname=fname,
         aims_command=aims_command,

@@ -30,7 +30,7 @@ def run_ri_fit() -> None:
     frame_idxs = range(len(frames))
 
     # Write submission script and run FHI-aims via sbatch array
-    fname = "run-aims-ri.sh"
+    fname = f"run-aims-ri-{hpc.timestamp()}.sh"
     hpc.write_aims_sbatch_array(
         fname=fname,
         aims_command=dft_options["AIMS_COMMAND"],
@@ -66,7 +66,7 @@ def set_up_ri_fit_sbatch() -> None:
     )
 
     # Write submission script and run FHI-aims via sbatch array
-    fname = "set-up-ri.sh"
+    fname = f"set-up-ri-{hpc.timestamp()}.sh"
     hpc.write_python_sbatch_array(
         fname=fname,
         array_idxs=frame_idxs,
@@ -160,7 +160,7 @@ def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
     )
 
     # Process the RI fit output for each frame
-    fname = "process-ri.sh"
+    fname = f"process-ri-{hpc.timestamp()}.sh"
     hpc.write_python_sbatch_array(
         fname=fname,
         array_idxs=frame_idxs,
