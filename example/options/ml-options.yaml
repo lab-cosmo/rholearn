@@ -1,0 +1,17 @@
+# Cross-validation splits (number of frames)
+N_TRAIN: 16
+N_VAL: 8
+N_TEST: 8
+
+# Other user settings here:
+# ...
+
+# For training the model
+TRAIN:
+  batch_size: 2
+  n_epochs: 501  # number of total epochs to run. End in a 1, i.e. 1001.
+  restart_epoch: null  # epoch of last saved checkpoint, or None for no restart
+  val_interval: 50  # validate every x intervals
+  log_interval: 50  # epoch interval at which to log metrics
+  checkpoint_interval: 100  # save model and optimizer state every x intervals
+
