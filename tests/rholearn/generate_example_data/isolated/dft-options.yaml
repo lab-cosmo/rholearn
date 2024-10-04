@@ -1,0 +1,11 @@
+# Absolute path to the top directory where FHI-aims output data will be stored
+DATA_DIR: /path/to/rholearn/tests/rholearn/generate_example_data/isolated/data
+
+# Absolute path to .xyz file containing the whole dataset
+XYZ: /path/to/rholearn/tests/rholearn/generate_example_data/isolated/data/isolated.xyz
+
+# The FHI-aims run command, including absolute path to aims executable
+AIMS_COMMAND: "srun /path/to/aims.x < control.in > aims.out"
+
+# Absolute path to species defaults directory
+SPECIES_DEFAULTS: /path/to/rholearn/tests/rholearn/generate_example_data/isolated/aims_species/edensity/tight/default

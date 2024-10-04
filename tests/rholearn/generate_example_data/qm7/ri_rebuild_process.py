@@ -10,13 +10,14 @@ from rholearn.aims_interface import fields, io
 from rholearn.utils import convert
 from rholearn.utils.io import unpickle_dict
 
-from dft_settings import *
+
+DATA_DIR = "/home/abbott/codes/rholearn/tests/rholearn/generate_example_data/qm7/data"
 
 ri_dir = lambda A: join(DATA_DIR, "raw", f"{A}", "edensity")
 rebuild_dir = lambda A: join(ri_dir(A), "rebuild")
 processed_dir = lambda A: join(DATA_DIR, "processed", f"{A}", "edensity")
 
-for A in FRAME_IDXS:
+for A in [0, 1, 2]:
     # Convert the ML coeffs to metatensor and save
     ml_coeffs_numpy = np.loadtxt(join(rebuild_dir(A), "ri_restart_coeffs.out"))
     basis_set = unpickle_dict(join(processed_dir(A), "basis_set.pickle"))

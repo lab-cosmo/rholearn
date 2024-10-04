@@ -1,19 +1,18 @@
 import os
 import time
-from functools import partial
 from os.path import exists, join
-from typing import List, Union
+from typing import List
 
 import numpy as np
 import torch
 
 from rholearn import train_utils
 from rholearn.aims_interface import fields, ri_rebuild
-from rholearn.settings.defaults import dft_defaults, ml_defaults
+from rholearn.options import get_options
 from rholearn.utils import convert, io, system
 
 
-def eval(dft_settings: dict, ml_settings: dict, hpc_settings: dict):
+def eval():
     """
     Runs model evaluation in the following steps:
         1. Load model
@@ -22,36 +21,40 @@ def eval(dft_settings: dict, ml_settings: dict, hpc_settings: dict):
         4. Evaluate MAE against reference fields
     """
     t0_eval = time.time()
+    dft_options, hpc_options, ml_options = _get_options()
 
-    # ===== Set global settings =====
-    _set_settings_globally(
-        dft_settings, ml_settings, hpc_settings
-    )  # must be in this order
-    _check_input_settings()
+    # Read frames and frame indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
+    frame_idxs = list(range(len(frames)))
+
+    _check_input_settings(dft_options, ml_options, frame_idxs)
 
     # ===== Setup =====
-    log_path = join(ML_DIR, "logs/eval.log")
-    io.log(log_path, f"===== BEGIN =====")
-    io.log(log_path, f"Working directory: {ML_DIR}")
+    os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
+    log_path = join(ml_options["ML_DIR"], "outputs/eval.log")
+    io.log(log_path, "===== BEGIN =====")
+    io.log(log_path, f"Working directory: {ml_options['ML_DIR']}")
 
     # Random seed and dtype
-    torch.manual_seed(SEED)
-    torch.set_default_dtype(TORCH["dtype"])
+    torch.manual_seed(ml_options["SEED"])
+    torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
 
     # Get a callable to the evaluation subdirectory, parametrized by frame idx
-    rebuild_dir = lambda frame_idx: join(EVAL_DIR(EVAL["eval_epoch"]), f"{frame_idx}")
+    rebuild_dir = lambda frame_idx: join(  # noqa: E731
+        ml_options["EVAL_DIR"](ml_options["EVAL"]["eval_epoch"]), f"{frame_idx}"
+    )
 
     # ===== Get the test data =====
 
-    io.log(log_path, f"Get the test IDs and frames")
+    io.log(log_path, "Get the test IDs and frames")
     _, _, test_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
-        frame_idxs=FRAME_IDXS,
-        n_train=N_TRAIN,
-        n_val=N_VAL,
-        n_test=N_TEST,
-        seed=SEED,
+        frame_idxs=frame_idxs,
+        n_train=ml_options["N_TRAIN"],
+        n_val=ml_options["N_VAL"],
+        n_test=ml_options["N_TEST"],
+        seed=ml_options["SEED"],
     )
-    all_frames = system.read_frames_from_xyz(XYZ)
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
     test_frames = [all_frames[A] for A in test_id]
 
     # ===== Load model and perform inference =====
@@ -66,11 +69,16 @@ def eval(dft_settings: dict, ml_settings: dict, hpc_settings: dict):
         io.log(log_path, msg)
         raise SystemExit(msg)
 
-    io.log(log_path, f"Load model from checkpoint at epoch {EVAL['eval_epoch']}")
-    model = torch.load(join(CHKPT_DIR(EVAL["eval_epoch"]), "model.pt"))
+    io.log(
+        log_path,
+        f"Load model from checkpoint at epoch {ml_options['EVAL']['eval_epoch']}",
+    )
+    model = torch.load(
+        join(ml_options["CHKPT_DIR"](ml_options["EVAL"]["eval_epoch"]), "model.pt")
+    )
 
     # Perform inference
-    io.log(log_path, f"Perform inference")
+    io.log(log_path, "Perform inference")
     t0_infer = time.time()
     test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)
     dt_infer = time.time() - t0_infer
@@ -80,7 +88,7 @@ def eval(dft_settings: dict, ml_settings: dict, hpc_settings: dict):
     io.log(log_path, train_utils.report_dt(dt_infer / len(test_id), "   or per frame"))
 
     # ===== Rebuild fields =====
-    io.log(log_path, f"Rebuild real-space field(s) in FHI-aims")
+    io.log(log_path, "Rebuild real-space field(s) in FHI-aims")
 
     # Convert predicted coefficients to flat numpy arrays
     test_preds_numpy = [
@@ -91,25 +99,24 @@ def eval(dft_settings: dict, ml_settings: dict, hpc_settings: dict):
     ]
 
     # Run rebuild routine
-    # rebuild_settings = {k: v for k, v in BASE_AIMS.items()}
-    # rebuild_settings.update({k: v for k, v in REBUILD.items()})
     t0_build = time.time()
     ri_rebuild.rebuild_field(
         frame_idxs=test_id,
         frames=test_frames,
         coefficients=test_preds_numpy,
         rebuild_dir=rebuild_dir,
-        aims_command=AIMS_COMMAND,
-        base_settings=BASE_AIMS,
-        rebuild_settings=REBUILD,
-        cube_settings=CUBE,
-        species_defaults=SPECIES_DEFAULTS,
-        hpc_settings=HPC,
-        slurm_params=SLURM_PARAMS,
+        aims_command=dft_options["AIMS_COMMAND"],
+        base_settings=dft_options["BASE_AIMS"],
+        rebuild_settings=dft_options["REBUILD"],
+        cube_settings=dft_options["CUBE"],
+        species_defaults=dft_options["SPECIES_DEFAULTS"],
+        slurm_params=hpc_options["SLURM_PARAMS"],
+        load_modules=hpc_options["LOAD_MODULES"],
+        export_vars=hpc_options["EXPORT_VARIABLES"],
     )
 
     # Wait for FHI-aims rebuild(s) to finish
-    io.log(log_path, f"Waiting for FHI-aims rebuild calculation(s) to finish...")
+    io.log(log_path, "Waiting for FHI-aims rebuild calculation(s) to finish...")
     while len(all_aims_outs) > 0:
         for aims_out in all_aims_outs:
             if exists(aims_out):
@@ -125,19 +132,23 @@ def eval(dft_settings: dict, ml_settings: dict, hpc_settings: dict):
     )
 
     # ===== Evaluate NMAE =====
-    io.log(log_path, f"Evaluate MAE versus reference field type: {EVAL['target_type']}")
+    io.log(
+        log_path,
+        "Evaluate MAE versus reference field type:"
+        f" {ml_options['EVAL']['target_type']}",
+    )
     nmaes = []
     for A in test_id:
         # Load grid and predicted field
-        grid = np.loadtxt(join(RI_DIR(A), "partition_tab.out"))
+        grid = np.loadtxt(join(dft_options["RI_DIR"](A), "partition_tab.out"))
         rho_ml = np.loadtxt(join(rebuild_dir(A), "rho_rebuilt_ri.out"))
 
         # Load reference field - either SCF or RI
-        if EVAL["target_type"] == "scf":
-            rho_ref = np.loadtxt(join(RI_DIR(A), f"rho_scf.out"))
+        if ml_options["EVAL"]["target_type"] == "scf":
+            rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_scf.out"))
         else:
-            assert EVAL["target_type"] == "ri"
-            rho_ref = np.loadtxt(join(RI_DIR(A), f"rho_rebuilt_ri.out"))
+            assert ml_options["EVAL"]["target_type"] == "ri"
+            rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.out"))
 
         # Get the MAE and normalization
         abs_error, norm = fields.field_absolute_error(
@@ -178,62 +189,52 @@ def eval(dft_settings: dict, ml_settings: dict, hpc_settings: dict):
     io.log(log_path, train_utils.report_dt(dt_eval, "Evaluation complete (total time)"))
 
 
-def _set_settings_globally(
-    dft_settings: dict,
-    ml_settings: dict,
-    hpc_settings: dict,
-) -> None:
+def _get_options():
     """
-    Sets the settings globally. Ensures the defaults are set first and then
-    overwritten with user settings.
+    Gets the DFT and ML options. Ensures the defaults are set first and then overwritten
+    with user settings.
     """
-    # Update DFT and ML defaults with user settings
-    dft_settings_ = dft_defaults.DFT_DEFAULTS
-    ml_settings_ = ml_defaults.ML_DEFAULTS
-    dft_settings_.update(dft_settings)
-    ml_settings_.update(ml_settings)
 
-    # Set them globally
-    for settings_dict in [dft_settings_, ml_settings_, hpc_settings]:
-        for key, value in settings_dict.items():
-            globals()[key] = value
+    dft_options = get_options("dft")
+    hpc_options = get_options("hpc")
+    ml_options = get_options("ml")
 
-    # Set some directories
-    globals()["SCF_DIR"] = lambda frame_idx: join(DATA_DIR, "raw", f"{frame_idx}")
-    globals()["RI_DIR"] = lambda frame_idx: join(
-        DATA_DIR, "raw", f"{frame_idx}", RI_FIT_ID
+    # Set some extra directories
+    dft_options["SCF_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
-    globals()["PROCESSED_DIR"] = lambda frame_idx: join(
-        DATA_DIR, "processed", f"{frame_idx}", RI_FIT_ID
+    dft_options["RI_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
     )
+    dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+    )
+    ml_options["ML_DIR"] = os.getcwd()
+    ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")
+    ml_options["EVAL_DIR"] = train_utils.create_subdir(os.getcwd(), "evaluation")
 
-    # Run directory is just the current directory
-    globals()["ML_DIR"] = os.getcwd()
-
-    # Callable directory path to checkpoint. parametrized by epoch number
-    globals()["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")
-    globals()["EVAL_DIR"] = train_utils.create_subdir(os.getcwd(), "evaluation")
-
-    # Directory for the log file(s)
-    os.makedirs(join(ML_DIR, "logs"), exist_ok=True)
+    return dft_options, hpc_options, ml_options
 
 
-def _check_input_settings():
+def _check_input_settings(dft_options: dict, ml_options: dict, frame_idxs: List[int]):
     """
-    Checks input settings for validatity. Assumes they have already been set
-    globally, i.e. by :py:fun:`set_settings_gloablly`.
+    Checks input settings for validity. Assumes they have already been set
+    globally, i.e. by :py:fun:`set_settings_globally`.
     """
-    if not os.path.exists(XYZ):
-        raise FileNotFoundError(f"XYZ file not found at path: {XYZ}")
-    if N_TRAIN <= 0:
+    if not os.path.exists(dft_options["XYZ"]):
+        raise FileNotFoundError(f"XYZ file not found at path: {dft_options['XYZ']}")
+    if ml_options["N_TRAIN"] <= 0:
         raise ValueError("must have size non-zero training set")
-    if N_VAL <= 0:
+    if ml_options["N_VAL"] <= 0:
         raise ValueError("must have size non-zero validation set")
-    if len(FRAME_IDXS) < N_TRAIN + N_VAL + N_TEST:
+    if (
+        len(frame_idxs)
+        < ml_options["N_TRAIN"] + ml_options["N_VAL"] + ml_options["N_TEST"]
+    ):
         raise ValueError(
             "the sum of sizes of training, validation, and test"
             " sets must be <= the number of frames"
         )
 
-    if EVAL["target_type"] not in ["scf", "ri"]:
+    if ml_options["EVAL"]["target_type"] not in ["scf", "ri"]:
         raise ValueError("EVAL['target_type'] must be 'scf' or 'ri'")

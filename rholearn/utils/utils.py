@@ -1,15 +1,10 @@
-import ctypes
 import datetime
-import gc
-import os
-import pickle
-from typing import List, Union, Optional
-
-import numpy as np
-import torch
+from typing import Union
 
 import metatensor as mts
-from metatensor import Labels, TensorBlock, TensorMap
+import numpy as np
+import torch
+from metatensor import TensorBlock, TensorMap
 
 
 def timestamp() -> str:
@@ -23,7 +18,7 @@ def make_contiguous_numpy(tensor: TensorMap) -> TensorMap:
     gradient values contiguous in memory.
     """
     new_blocks = []
-    for key, block in tensor.items():
+    for _, block in tensor.items():
         new_block = TensorBlock(
             values=np.ascontiguousarray(block.values),
             samples=block.samples,

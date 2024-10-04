@@ -3,10 +3,10 @@ Module for evaluating the loss between input and target scalar fields expanded o
 spherical basis.
 """
 
-from typing import List, Optional, Union
+from typing import Optional
 
-import torch
 import metatensor.torch as mts
+import torch
 
 
 class RhoLoss(torch.nn.Module):
@@ -55,8 +55,9 @@ class RhoLoss(torch.nn.Module):
             if truncated is None:
                 truncated = False
             assert normalized is None, (
-                "``normalized`` must be None, as non-normalized and normalized basis sets are"
-                " treated equivalently by this class for non-orthogonal basis sets"
+                "``normalized`` must be None, as non-normalized and normalized"
+                " basis sets are treated equivalently by this class for"
+                " non-orthogonal basis sets"
             )
 
         # Set attributes
@@ -185,7 +186,7 @@ class RhoLoss(torch.nn.Module):
                 target_c=target_c,
                 check_metadata=check_metadata,
             )
-        
+
         if not self._truncated:
             assert target_c is not None, (
                 "if evaluating the non-truncated loss with the overlap matrix,"
@@ -481,7 +482,8 @@ def _cSc(
 
 
 def _Sc(
-    coefficients: mts.TensorMap, overlap: mts.TensorMap,
+    coefficients: mts.TensorMap,
+    overlap: mts.TensorMap,
 ) -> mts.TensorMap:
     """
     Performs the matrix multiplication:
@@ -540,7 +542,7 @@ def _dot(vector_1: mts.TensorMap, vector_2: mts.TensorMap) -> torch.Tensor:
     .. math::
 
         v_1 . v_2
-    
+
     where ``vector_1`` is the vector "v_1" and ``vector_2`` is the vector "v_2". The
     Both are assumed to have equivalent metadata. Returns a scalar.
     """

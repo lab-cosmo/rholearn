@@ -3,15 +3,14 @@ Module containing functions to perform model training and evaluation steps.
 """
 
 import os
-from os.path import exists, join
 from functools import partial
+from os.path import exists, join
 from typing import Callable, List, NamedTuple, Optional, Tuple, Union
 
-from chemfiles import Frame
+import metatensor.torch as mts
 import numpy as np
 import torch
-
-import metatensor.torch as mts
+from chemfiles import Frame
 from metatensor.torch.learn.data import DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
@@ -34,7 +33,9 @@ def create_subdir(ml_dir: str, name: str):
     where the callable is parametrized by the variable `epoch`. This is used for
     creating checkpoint and evaluation directories.
     """
-    subdir = lambda epoch: join(ml_dir, name, f"epoch_{epoch}")
+
+    def subdir(epoch):
+        return join(ml_dir, name, f"epoch_{epoch}")
 
     if not exists(join(ml_dir, name)):
         os.makedirs(join(ml_dir, name))
@@ -172,7 +173,7 @@ def get_dataset(
             for frame, A, ovlp in zip(frames, frame_idxs, overlap)
         ]
 
-    return IndexedDataset(
+    dataset = IndexedDataset(
         sample_id=frame_idxs,
         frame=frames,
         descriptor=descriptor,
@@ -180,6 +181,8 @@ def get_dataset(
         target_w=target_w,
         overlap=overlap,
     )
+
+    return dataset
 
 
 def group_and_join_nonetypes(
@@ -314,17 +317,17 @@ def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, chkpt_dir: str
     if not exists(chkpt_dir):  # create chkpoint dir
         os.makedirs(chkpt_dir)
 
-    torch.save(model, join(chkpt_dir, f"model.pt"))  # model obj
+    torch.save(model, join(chkpt_dir, "model.pt"))  # model obj
     torch.save(  # model state dict
         model.state_dict(),
-        join(chkpt_dir, f"model_state_dict.pt"),
+        join(chkpt_dir, "model_state_dict.pt"),
     )
     # Optimizer and scheduler
-    torch.save(optimizer.state_dict(), join(chkpt_dir, f"optimizer_state_dict.pt"))
+    torch.save(optimizer.state_dict(), join(chkpt_dir, "optimizer_state_dict.pt"))
     if scheduler is not None:
         torch.save(
             scheduler.state_dict(),
-            join(chkpt_dir, f"scheduler_state_dict.pt"),
+            join(chkpt_dir, "scheduler_state_dict.pt"),
         )
 
 
@@ -404,7 +407,8 @@ def _group_idxs(
     if group_sizes is not None:
         if len(group_sizes) != n_groups:
             raise ValueError(
-                f"Length of group_sizes ({len(group_sizes)}) must match n_groups ({n_groups})."
+                f"Length of group_sizes ({len(group_sizes)})"
+                f" must match n_groups ({n_groups})."
             )
 
     # Create a copy of the indices so that shuffling doesn't affect the original
@@ -416,7 +420,7 @@ def _group_idxs(
         rng.shuffle(idxs)
 
     # Get absolute group sizes for train/test/validation split
-    abs_group_sizes = get_group_sizes(n_groups, len(idxs), group_sizes)
+    abs_group_sizes = _get_group_sizes(n_groups, len(idxs), group_sizes)
 
     if np.sum(abs_group_sizes) != len(idxs):
         raise ValueError("sum of group sizes not equal to len of `idxs` passed")

@@ -1,8 +1,7 @@
-import numpy as np
-import torch
-
 import metatensor
 import metatensor.torch
+import numpy as np
+import torch
 
 
 def array(array, backend: str):
@@ -72,7 +71,7 @@ def stack(arrays, axis, backend: str):
 
 
 # def sort(array, axis, backend: str):
-    
+
 #     if backend == "torch":
 #         return torch.sort(array, dim=axis)
 

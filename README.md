@@ -43,21 +43,27 @@ Leveraging the speed- and memory-efficient operations of `torch`, and using buil
 
 ### Installing `rholearn`
 
-With a working `conda` installation, install as follows:
+With a working `conda` installation, first set up an environment:
 ```bash
-git clone https://github.com/lab-cosmo/rholearn
-cd rholearn
-conda env create --file install/environment.yaml
+conda create -n rho python==3.11
 conda activate rho
-./install/extra-pip-packages.sh
-pip install .
+```
+Then clone and install `rholearn`:
+```bash
+git clone https://github.com/lab-cosmo/rholearn.git
+cd rholearn
+# Specify CPU-only torch
+pip install --extra-index-url https://download.pytorch.org/whl/cpu .
 ```
 
-Run a few (currently limited) tests on loss functions with: `pytest tests/rholearn/loss.py`
+Running `tox` from the top directory will run linting and formatting.
+To run some tests (currently limited to testing `rholearn.loss`), run `pytest tests/rholearn/loss.py`.
 
 ### Installing `FHI-aims`
 
 For generating reference data, using the `aims_interface` of `rholearn`, a working installation of **`FHIaims >= 240926`** is required. FHI-aims is not open source but is free for academic use. Follow the instructions on their website [fhi-aims.org/get-the-code](https://fhi-aims.org/get-the-code/) to get and build the code. The end result should be an executable, compiled for your specific system.
+
+There are also useful tutorials on the basics of running `FHI-aims` [here](https://fhi-aims-club.gitlab.io/tutorials/basics-of-running-fhi-aims/).
 
 
 ### Basic usage
@@ -67,19 +73,16 @@ User defined settings are specified in settings modules that are locally importe
 Basic usage is as follows:
 
 ```python
+# Specify user options "dft-options.yaml", "hpc-options.yaml", and "ml-options.yaml"
+# ...
+# then:
 import rholearn
 
-# User settings
-from dft_settings import DFT_SETTINGS
-from hpc_settings import HPC_SETTINGS
-from ml_settings import ML_SETTINGS  # training settings
-from net import NET  # custom NN architecture
-
 # Train a model
-rholearn.train(DFT_SETTINGS, ML_SETTINGS, NET)
+rholearn.train()
 
 # Evaluate
-rholearn.eval(DFT_SETTINGS, ML_SETTINGS, HPC_SETTINGS)
+rholearn.eval()
 ```
 
-**Tutorial:** for a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/) on data generation using `FHI-aims` and model training using `rholearn`.
+**Tutorial:** for a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn`.

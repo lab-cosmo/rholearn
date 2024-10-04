@@ -1,6 +1,6 @@
 """
 Module containing the RhoCube class, which wraps the cube_tools.cube class from
-https://github.com/funkymunkycool/Cube-Toolz. 
+https://github.com/funkymunkycool/Cube-Toolz.
 
 Allows reading and manipulation of cube files, with added functionality for generating
 contour plots (i.e. for use in STM image generation).
@@ -8,14 +8,13 @@ contour plots (i.e. for use in STM image generation).
 
 from typing import List, Optional, Tuple
 
+import cube_tools
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import py3Dmol
-from scipy.interpolate import CubicSpline
-
 from chemfiles import Atom, Frame
-import cube_tools
+from scipy.interpolate import CubicSpline
 
 
 class RhoCube(cube_tools.cube):
@@ -125,7 +124,8 @@ class RhoCube(cube_tools.cube):
                     z_grid.min(), z_grid.max(), self.NZ * grid_multiplier
                 )
 
-                # Find the idxs of the values that match the isovalue, within the tolerance
+                # Find the idxs of the values that match the isovalue, within the
+                # tolerance
                 match_idxs = np.where(
                     np.abs(spliner(z_grid_fine) - isovalue) < tolerance
                 )[0]
@@ -240,7 +240,7 @@ def contour_scatter_matrix(
     # color bar scales for all scatter plots
     vmin, vmax = [], []
     for row, row_ax in enumerate(axes):
-        for col, ax in enumerate(row_ax):
+        for col in range(len(row_ax)):
             if row == col:
                 z_ = Z[row].flatten()
             elif row < col:  # upper triangle

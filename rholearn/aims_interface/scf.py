@@ -2,80 +2,85 @@
 For converging SCF calculations for a given system in FHI-aims.
 """
 
-import shutil
 import os
+import shutil
 from os.path import exists, join
 
-from rholearn.aims_interface import io, hpc
+from rholearn.aims_interface import hpc, io
+from rholearn.options import get_options
 from rholearn.utils import system
-from rholearn.settings.defaults import dft_defaults
 
 
-def run_scf(dft_settings: dict, hpc_settings: dict) -> None:
+def run_scf() -> None:
     """
     Runs a FHI-aims SCF calculation according to the settings in `dft_settings`.
     """
 
-    # Set the DFT settings globally
-    _set_settings_globally(dft_settings, hpc_settings)
+    # Get the DFT and HPC options
+    dft_options, hpc_options = _get_options()
 
-    # Get the frames
-    all_frames = system.read_frames_from_xyz(XYZ)
-    frames = [all_frames[A] for A in FRAME_IDXS]
+    # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
+    frame_idxs = range(len(frames))
 
     # Build the calculation settings for each frame in turn
-    for A, frame in zip(FRAME_IDXS, frames):
+    for A, frame in enumerate(frames):
 
         # Make RI dir and copy settings file
-        if not exists(SCF_DIR(A)):
-            os.makedirs(SCF_DIR(A))
-        shutil.copy("dft_settings.py", SCF_DIR(A))
+        if not exists(dft_options["SCF_DIR"](A)):
+            os.makedirs(dft_options["SCF_DIR"](A))
+        shutil.copy("dft-options.yaml", dft_options["SCF_DIR"](A))
+        shutil.copy("hpc-options.yaml", dft_options["SCF_DIR"](A))
 
         # Get control parameters
         control_params = io.get_control_parameters_for_frame(
-            frame, BASE_AIMS, SCF, CUBE
+            frame, dft_options["BASE_AIMS"], dft_options["SCF"], dft_options["CUBE"]
         )
 
         # Write input files
-        io.write_geometry(frame, SCF_DIR(A))
+        io.write_geometry(frame, dft_options["SCF_DIR"](A))
         io.write_control(
             frame,
-            SCF_DIR(A),
+            dft_options["SCF_DIR"](A),
             parameters=control_params,
-            species_defaults=SPECIES_DEFAULTS,
+            species_defaults=dft_options["SPECIES_DEFAULTS"],
         )
 
     # Write submission script and run FHI-aims via sbatch array
     fname = "run-aims-scf.sh"
     hpc.write_aims_sbatch_array(
         fname=fname,
-        aims_command=AIMS_COMMAND,
-        array_idxs=FRAME_IDXS,
-        run_dir=SCF_DIR,  # callable to each structure dir
+        aims_command=dft_options["AIMS_COMMAND"],
+        array_idxs=frame_idxs,
+        run_dir=dft_options["SCF_DIR"],  # callable to each structure dir
         dm_restart_dir=None,
-        load_modules=HPC["load_modules"],
-        export_vars=HPC["export_vars"],
-        slurm_params=SLURM_PARAMS,
+        load_modules=hpc_options["LOAD_MODULES"],
+        export_vars=hpc_options["EXPORT_VARIABLES"],
+        slurm_params=hpc_options["SLURM_PARAMS"],
     )
     hpc.run_script(".", f"sbatch {fname}")
 
     return
 
 
-def process_scf(dft_settings: dict, hpc_settings: dict) -> None:
+def process_scf() -> None:
     """
     Parses aims.out files from SCF runs and saves them to the SCF directory.
     """
-    
+
     # Set the DFT settings globally
-    _set_settings_globally(dft_settings, hpc_settings)
+    dft_options, hpc_options = _get_options()
+
+    # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
+    frame_idxs = range(len(frames))
 
     python_command = (
         "python3 -c"
         "'from rholearn.aims_interface import parser;"
         " from rholearn.utils.io import pickle_dict;"
-        " calc_info = parser.parse_aims_out(aims_output_dir=\".\");"
-        " pickle_dict(\"calc_info.pickle\", calc_info);"
+        ' calc_info = parser.parse_aims_out(aims_output_dir=".");'
+        ' pickle_dict("calc_info.pickle", calc_info);'
         "'"
     )
 
@@ -83,31 +88,31 @@ def process_scf(dft_settings: dict, hpc_settings: dict) -> None:
     fname = "run-process-scf.sh"
     hpc.write_python_sbatch_array(
         fname=fname,
-        array_idxs=FRAME_IDXS,
-        run_dir=SCF_DIR,
+        array_idxs=frame_idxs,
+        run_dir=dft_options["SCF_DIR"],
         python_command=python_command,
-        slurm_params=SLURM_PARAMS,
+        slurm_params=hpc_options["SLURM_PARAMS"],
     )
     hpc.run_script(".", "sbatch " + fname)
 
 
-
-def _set_settings_globally(dft_settings: dict, hpc_settings: dict) -> None:
+def _get_options() -> None:
     """
-    Sets the settings globally. Ensures the defaults are set first and then
+    Gets the DFT and HPC options. Ensures the defaults are set first and then
     overwritten with user settings.
     """
-    # Update DFT and ML defaults with user settings
-    dft_settings_ = dft_defaults.DFT_DEFAULTS
-    dft_settings_.update(dft_settings)
+    dft_options = get_options("dft")
+    hpc_options = get_options("hpc")
 
-    # Set them globally
-    for settings_dict in [dft_settings_, hpc_settings]:
-        for key, value in settings_dict.items():
-            globals()[key] = value
+    # Set some extra directories
+    dft_options["SCF_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}"
+    )
+    dft_options["RI_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
+    )
+    dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+    )
 
-
-    # Set some directories
-    globals()["SCF_DIR"] = lambda frame_idx: join(DATA_DIR, "raw", f"{frame_idx}")
-    globals()["RI_DIR"] = lambda frame_idx: join(DATA_DIR, "raw", f"{frame_idx}", RI_FIT_ID)
-    globals()["PROCESSED_DIR"] = lambda frame_idx: join(DATA_DIR, "processed", f"{frame_idx}", RI_FIT_ID)
+    return dft_options, hpc_options
