@@ -34,6 +34,10 @@ def run_ri_fit() -> None:
     if frame_idxs is None:
         frame_idxs = list(range(len(frames)))
 
+    # Add virtual nodes if applicable
+    if dft_options["VIRTUAL_NODES"] is True:
+        frames = system.add_virtual_nodes_in_bonds(frames)
+
     # Write submission script and run FHI-aims via sbatch array
     fname = f"run-aims-ri-{hpc.timestamp()}.sh"
     hpc.write_aims_sbatch_array(
@@ -96,6 +100,10 @@ def setup_ri_fit_for_frame(frame_idx: int) -> None:
 
     # Get the frames and indices
     frame = system.read_frames_from_xyz(dft_options["XYZ"])[frame_idx]
+
+    # Add virtual nodes if applicable
+    if dft_options["VIRTUAL_NODES"] is True:
+        frame = system.add_virtual_nodes_in_bonds(frame)
 
     # Retype masked atoms for the RI calculation
     if dft_options["MASK"] is not None:

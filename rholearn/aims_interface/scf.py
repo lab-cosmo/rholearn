@@ -28,6 +28,10 @@ def run_scf() -> None:
     if frame_idxs is None:
         frame_idxs = list(range(len(frames)))
 
+    # Add virtual nodes if applicable
+    if dft_options["VIRTUAL_NODES"] is True:
+        frames = system.add_virtual_nodes_in_bonds(frames)
+
     # Build the calculation settings for each frame in turn
     for A, frame in enumerate(frames):
 

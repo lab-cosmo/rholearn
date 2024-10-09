@@ -33,6 +33,10 @@ def run_ri_rebuild() -> None:
     if frame_idxs is None:
         frame_idxs = list(range(len(frames)))
 
+    # Add virtual nodes if applicable
+    if dft_options["VIRTUAL_NODES"] is True:
+        frames = system.add_virtual_nodes_in_bonds(frames)
+
     # Retype masked atoms for the RI calculation
     if dft_options.get("MASK") is not None:
         frames = mask.retype_masked_atoms(
