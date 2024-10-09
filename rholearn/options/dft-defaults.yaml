@@ -40,3 +40,6 @@ FIELD_NAME: edensity
 
 # For sample masking
 MASK: null
+
+# To generate data for a subset of the structures
+IDX_SUBSET: null

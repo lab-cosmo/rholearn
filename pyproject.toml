@@ -41,3 +41,13 @@ packages = [
     "rholearn.utils",
 ]
 package-data = {"rholearn" = ["rholearn/options/*.yaml"]}
+
+[project.scripts]
+rholearn_run_scf = "rholearn.aims_interface.scf:run_scf"
+rholearn_process_scf = "rholearn.aims_interface.scf:process_scf"
+rholearn_setup_ri_fit = "rholearn.aims_interface.ri_fit:setup_ri_fit"
+rholearn_run_ri_fit = "rholearn.aims_interface.ri_fit:run_ri_fit"
+rholearn_process_ri_fit = "rholearn.aims_interface.ri_fit:process_ri_fit"
+rholearn_run_ri_rebuild = "rholearn.aims_interface.ri_rebuild:run_ri_rebuild"
+rholearn_train = "rholearn.train:train"
+rholearn_eval = "rholearn.eval:eval"
