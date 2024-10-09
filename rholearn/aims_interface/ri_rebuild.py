@@ -25,8 +25,13 @@ def run_ri_rebuild() -> None:
     dft_options, hpc_options = _get_options()
 
     # Get the frames and indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = range(len(frames))
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = None
+    frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
+    if frame_idxs is None:
+        frame_idxs = list(range(len(frames)))
 
     # Retype masked atoms for the RI calculation
     if dft_options.get("MASK") is not None:

@@ -26,8 +26,13 @@ def run_ri_fit() -> None:
     dft_options, hpc_options = _get_options()
 
     # Get the frames and indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = range(len(frames))
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = None
+    frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
+    if frame_idxs is None:
+        frame_idxs = list(range(len(frames)))
 
     # Write submission script and run FHI-aims via sbatch array
     fname = f"run-aims-ri-{hpc.timestamp()}.sh"
@@ -46,7 +51,7 @@ def run_ri_fit() -> None:
     return
 
 
-def set_up_ri_fit_sbatch() -> None:
+def setup_ri_fit() -> None:
     """
     Runs the RI fitting set up as an sbatch array job for each frame.
     """
@@ -54,14 +59,16 @@ def set_up_ri_fit_sbatch() -> None:
     # Get the DFT and HPC options
     dft_options, hpc_options = _get_options()
 
-    # Get the frames and indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = range(len(frames))
+    # Get the frame indices
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
 
     # Define the python command to run for the given frame
     python_command = (
         'python3 -c "from rholearn.aims_interface import ri_fit; '
-        'ri_fit.set_up_ri_fit("${ARRAY_IDX}");'
+        'ri_fit.setup_ri_fit_for_frame("${ARRAY_IDX}");'
         '"'
     )
 
@@ -79,7 +86,7 @@ def set_up_ri_fit_sbatch() -> None:
     return
 
 
-def set_up_ri_fit(frame_idx: int) -> None:
+def setup_ri_fit_for_frame(frame_idx: int) -> None:
     """
     Prepares the input files for an RI fitting calculation for a single indexed frame.
     """
@@ -135,9 +142,11 @@ def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
     # Get the DFT and HPC options
     dft_options, hpc_options = _get_options()
 
-    # Get the frames and indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = range(len(frames))
+    # Get the frame indices
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
 
     for A in frame_idxs:
         shutil.copy("dft-options.yaml", dft_options["RI_DIR"](A))

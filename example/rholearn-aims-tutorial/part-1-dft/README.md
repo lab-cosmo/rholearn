@@ -9,22 +9,22 @@ After modifying the user options in `dft-options.yaml` and `hpc-options.yaml`, t
 # ...
 
 # Run SCF
-python -c 'from rholearn.aims_interface import scf; scf.run_scf()'
+rholearn_run_scf
 
 # Process SCF
-python -c 'from rholearn.aims_interface import scf; scf.process_scf()'
+rholearn_process_scf
 
 # Setup RI
-python -c 'from rholearn.aims_interface import ri_fit; ri_fit.set_up_ri_fit_sbatch()'
+rholearn_setup_ri_fit
 
 # Run RI
-python -c 'from rholearn.aims_interface import ri_fit; ri_fit.run_ri_fit()'
+rholearn_run_ri_fit
 
 # Process RI
-python -c 'from rholearn.aims_interface import ri_fit; ri_fit.process_ri_fit()'
+rholearn_process_ri_fit
 
-# Optional: for a consistency check
-python -c 'from rholearn.aims_interface import ri_rebuild; ri_rebuild.run_ri_rebuild()'
+# [Optional]: for a consistency check
+rholearn_run_ri_rebuild
 ```
 
 ## 1.1: Specify DFT and HPC options
@@ -50,10 +50,9 @@ Run the SCF procedure. This submits a parallel array of SCF calculations for eac
 from rholearn.aims_interface import scf
 
 scf.run_scf()
-
-# Alternatively: a one-liner for the command line
-python -c 'from rholearn.aims_interface import scf; scf.run_scf();'
 ```
+Alternatively, from the command line:` rholearn_run_scf`
+
 After the calculation has finished, the run directory for each structure contains the following files:
 
 ```bash
@@ -79,10 +78,9 @@ Now process the SCF outputs - this essentially just parses `aims.out` to extract
 from rholearn.aims_interface import scf
 
 scf.process_scf()
-
-# Alternatively: a one-liner for the command line
-python -c 'from rholearn.aims_interface import scf; scf.process_scf()'
 ```
+
+Alternatively, from the command line: `rholearn_process_scf`
 
 In the supporting notebook [part-1-dft](./part-1-dft.ipynb), SCF convergence can be checked and reference SCF electron densitites visualised.
 
@@ -99,20 +97,19 @@ First, **create the input files** for the RI calculation.
 from rholearn.aims_interface import ri_fit
 
 ri_fit.set_up_ri_fit_sbatch()
-
-# Alternatively: a one-liner for the command line
-python -c 'from rholearn.aims_interface import ri_fit; ri_fit.set_up_ri_fit_sbatch()'
 ```
 
+Alternatively: from the command line: `rholearn_setup_ri_fit`
+
 Next, **run the RI fitting** procedure.
+
 ```python
 from rholearn.aims_interface import ri_fit
 
 ri_fit.run_ri_fit()
-
-# Alternatively: a one-liner for the command line
-python -c 'from rholearn.aims_interface import ri_fit; ri_fit.run_ri_fit()'
 ```
+
+Alternatively, from the command line: `rholearn_run_ri_fit`
 
 After the calculation has completed, the directory structure looks like:
 ```bash
@@ -146,10 +143,9 @@ Finally, **process the RI outputs**.
 from rholearn.aims_interface import ri_fit
 
 ri_fit.process_ri_fit()
-
-# Alternatively: a one-liner for the command line
-python -c 'from rholearn.aims_interface import ri_fit; ri_fit.process_ri_fit()'
 ```
+
+Alternatively, from the command line: `rholearn_process_ri_fit`
 
 This creates a set of subdirectories, one for each frame, containing the following processed data:
 ```bash
@@ -174,12 +170,11 @@ The processed data contained in `processed/`, along with the `.xyz` file in `dat
 This step isn't required to generate data, but can be used as a consistency check. One can take the vector of RI coefficients `ri_restart_coeffs.out` and perform an RI rebuild calculation in `FHI-aims`. The field constructed should be exactly equivalent to the field `rho_rebuilt_ri.out` output in the RI step above.
 
 ```python
-from rholearn.aims_interface import ri_fit
+from rholearn.aims_interface import ri_rebuild
 
-ri_fit.process_ri_fit()
-
-# Alternatively: a one-liner for the command line
-python -c 'from rholearn.aims_interface import ri_rebuild; ri_rebuild.run_ri_rebuild()'
+ri_rebuild.run_ri_rebuild()
 ```
+
+Alternatively, from the command line: ` rholearn_run_ri_rebuild`
 
 One can check this consistency in the [supporting notebook](part-1-dft.ipynb).

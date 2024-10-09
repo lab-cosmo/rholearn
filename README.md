@@ -74,30 +74,27 @@ In a run directory, user-options are defined in YAML files named ["dft-options.y
 
 Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](example/options) directory.
 
-Then, data can be generated and model training and evaluation run with the following:
+Then, data can be generated and model training and evaluation run with the following CLI commands:
 
-```python
-import rholearn
-from rholearn.aims_interface import scf, ri_fit
+```bash
+rholearn_run_scf  # run SCF with FHI-aims
 
-# Run SCF
-scf.run_scf()
+rholearn_process_scf  # process SCF outputs
 
-# ...
+rholearn_setup_ri_fit  # setup RI fitting calculation
 
-# Run RI fitting
-ri_fit.run_ri_fit()
+rholearn_run_ri_fit  # run RI fitting with FHI-aims
 
-# ...
+rholearn_process_ri_fit  # process RI outputs
 
-# Train a model
-rholearn.train()
+rholearn_train  # train model with rholearn
 
-# Evaluate
-rholearn.eval()
+rholearn_eval  # evaluate model with rholearn
 ```
 
-**Tutorial:** for a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn`.
+### Tutorial 
+
+For a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn`.
 
 
 # Citing this work

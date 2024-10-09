@@ -20,8 +20,13 @@ def run_scf() -> None:
     dft_options, hpc_options = _get_options()
 
     # Get the frames and indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = range(len(frames))
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = None
+    frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
+    if frame_idxs is None:
+        frame_idxs = list(range(len(frames)))
 
     # Build the calculation settings for each frame in turn
     for A, frame in enumerate(frames):
@@ -71,9 +76,13 @@ def process_scf() -> None:
     # Set the DFT settings globally
     dft_options, hpc_options = _get_options()
 
-    # Get the frames and indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = range(len(frames))
+    # Get the frame indices
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(
+            range(len(system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)))
+        )
 
     python_command = (
         "python3 -c"

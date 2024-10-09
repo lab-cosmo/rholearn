@@ -10,10 +10,10 @@ After copying [dft-options.yaml](../part-1-dft/dft-options.yaml) and [hpc-option
 # ...
 
 # Train
-python -c 'import rholearn; rholearn.train()'
+rholearn_train
 
 # Eval
-python -c 'import rholearn; rholearn.eval()'
+rholearn_eval
 ```
 
 Where each command can be wrapped in an HPC submission script.
@@ -52,8 +52,8 @@ import rholearn
 
 rholearn.train()
 
-# Alternatively: a one-liner for the command line
-python -c 'import rholearn; rholearn.train()'
+# Alternatively: from the command line
+rholearn_train
 ```
 
 The file [hpc-options.yaml](hpc-options.yaml) is not used by the `rholearn.train` function. Instead, **to run training on a cluster**, the one-line python command can be incorporated into an HPC run script. In this case, ensure that the calculation is run from within the `rho` conda environment. For slurm schedulers, this is done by running the script from the `rho` env with the `--get-user-env` flag in the submission script:
@@ -67,7 +67,7 @@ The file [hpc-options.yaml](hpc-options.yaml) is not used by the `rholearn.train
 #SBATCH --ntasks-per-node=40
 #SBATCH --get-user-env
 
-python -c 'import rholearn; rholearn.train()'
+rholearn_train
 ```
 
 Once running, the model is trained by gradient descent over a number of epochs, and information is logged to `part-2-ml/outputs/train.log`. There is some preamble regarding model architecture, and cross-validation splits of data, then information from the training loop is printed, of the form:
@@ -101,8 +101,8 @@ import rholearn
 
 rholearn.eval()
 
-# Alternatively: a one-liner for the command line
-python -c 'import rholearn; rholearn.eval()'
+# Alternatively: from the command line
+rholearn_eval
 ```
 As evaluation of the model requires rebuilding the field in FHI-aims, the `rholearn.eval` function requires specification of the local file [hpc-options.yaml](hpc-options.yaml).
 
