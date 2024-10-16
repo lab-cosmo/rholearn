@@ -10,6 +10,7 @@ import metatensor as mts
 import numpy as np
 from chemfiles import Frame
 
+from rholearn import mask
 from rholearn.aims_interface import fields, io, parser
 from rholearn.utils import convert, system, utils
 from rholearn.utils.io import pickle_dict
@@ -205,11 +206,18 @@ def get_prodbas_radii(aims_output_dir: str, fname: Optional[str] = "aims.out") -
                 float(line[5]),
                 float(line[7]),
             )
-            prodbas_data[(symbol, l)] = {
+            tmp_dict = {
                 "charge_radius": charge_radius,
                 "field_radius": field_radius,
                 "mulitpole_mom": mulitpole_mom,
             }
+            if symbol in prodbas_data:
+                if l in prodbas_data[symbol]:
+                    prodbas_data[symbol][l].append(tmp_dict)
+                else:
+                    prodbas_data[symbol][l] = [tmp_dict]
+            else:
+                prodbas_data[symbol] = {l: [tmp_dict]}
 
         else:
             break
@@ -217,41 +225,24 @@ def get_prodbas_radii(aims_output_dir: str, fname: Optional[str] = "aims.out") -
     return prodbas_data
 
 
-def get_max_overlap_radius(
-    aims_output_dir: str, atom_1: Union[str, int], atom_2: Union[str, int]
-) -> float:
+def get_max_overlap_radius_by_type(aims_output_dir: str) -> float:
     """
-    Returns the maximum overlap radius between the two atom types passed in ``atom_1``
-    and ``atom_2``.
+    Returns the maximum overlap radius by species type.
 
     Reads the product basis function radii by parsing "aims.out" file in the directory
-    ``aims_output_dir``.
+    ``aims_output_dir``, using the function :py:func:`get_prodbas_radii`.
     """
-    if isinstance(atom_1, int):
-        sym_1 = system.atomic_number_to_atomic_symbol(atom_1)
-    elif isinstance(atom_1, str):
-        sym_1 = atom_1
-    else:
-        raise ValueError(f"invalid atom_1: {atom_1}")
-    if isinstance(atom_2, int):
-        sym_2 = system.atomic_number_to_atomic_symbol(atom_2)
-    elif isinstance(atom_2, str):
-        sym_2 = atom_2
-    else:
-        raise ValueError(f"invalid atom_2: {atom_2}")
-
     # Get the product basis function radii
-    prodbas_data = get_prodbas_radii(aims_output_dir)
+    radii = get_prodbas_radii(aims_output_dir)
 
-    # Parse max radii
-    max_radius_1, max_radius_2 = 0, 0
-    for key in prodbas_data.keys():
-        if key[0] == sym_1:
-            max_radius_1 = max(max_radius_1, float(prodbas_data[key]["charge_radius"]))
-        if key[0] == sym_2:
-            max_radius_2 = max(max_radius_2, float(prodbas_data[key]["charge_radius"]))
-
-    return max_radius_1 + max_radius_2
+    max_radii = {}
+    for symbol, l_dict in radii.items():
+        species_type = system.atomic_symbol_to_atomic_number(symbol)
+        max_radii[species_type] = max(
+            [item["charge_radius"] for l, l_list in radii[symbol].items() for item in l_list]
+        )
+    
+    return max_radii
 
 
 def parse_aims_out(aims_output_dir: str, fname: str = "aims.out") -> dict:
@@ -574,6 +565,7 @@ def process_ri_outputs(
     aims_output_dir: str,
     structure_idx: int,
     ovlp_cond_num: bool,
+    cutoff_ovlp: bool,
     save_dir: str,
 ) -> None:
     """
@@ -637,6 +629,25 @@ def process_ri_outputs(
         structure_idx=structure_idx,
         backend="numpy",
     )
+
+    # Parse basis function radii
+    max_radii = parser.get_max_overlap_radius_by_type(aims_output_dir)
+    pickle_dict(
+        join(save_dir, "max_bf_radii.pickle"),
+        max_radii,
+    )
+
+    # Cutoff overlap if applicable
+    if cutoff_ovlp:
+        ovlp = mask.cutoff_overlap_matrix(
+            frames=[frame],
+            frame_idxs=[structure_idx],
+            overlap_matrix=ovlp,
+            radii=max_radii,
+            drop_empty_blocks=True,
+            backend="numpy",
+        )
+
     mts.save(
         join(save_dir, "ri_ovlp.npz"),
         utils.make_contiguous_numpy(ovlp),

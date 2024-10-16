@@ -41,5 +41,13 @@ FIELD_NAME: edensity
 # For sample masking
 MASK: null
 
+# For assigning virtual nodes
+ASSIGN_VIRTUAL_NODES: null
+
 # To generate data for a subset of the structures
 IDX_SUBSET: null
+
+# For processing the RI outputs
+PROCESS_RI:
+  overlap_cond_num: false
+  cutoff_overlap: false

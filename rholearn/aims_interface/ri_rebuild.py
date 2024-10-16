@@ -12,7 +12,7 @@ from chemfiles import Frame
 from rholearn import mask
 from rholearn.aims_interface import hpc, io, parser
 from rholearn.options import get_options
-from rholearn.utils import convert, system
+from rholearn.utils import convert, geometry, system
 
 
 def run_ri_rebuild() -> None:
@@ -34,8 +34,8 @@ def run_ri_rebuild() -> None:
         frame_idxs = list(range(len(frames)))
 
     # Add virtual nodes if applicable
-    if dft_options["VIRTUAL_NODES"] is True:
-        frames = system.add_virtual_nodes_in_bonds(frames)
+    if dft_options["VIRTUAL_NODES"] is not None:
+        frames = geometry.add_virtual_nodes(frames, method=dft_options["VIRTUAL_NODES"])
 
     # Retype masked atoms for the RI calculation
     if dft_options.get("MASK") is not None:

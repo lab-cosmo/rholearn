@@ -8,7 +8,7 @@ from os.path import exists, join
 
 from rholearn.aims_interface import hpc, io
 from rholearn.options import get_options
-from rholearn.utils import system
+from rholearn.utils import geometry, system
 
 
 def run_scf() -> None:
@@ -29,11 +29,13 @@ def run_scf() -> None:
         frame_idxs = list(range(len(frames)))
 
     # Add virtual nodes if applicable
-    if dft_options["VIRTUAL_NODES"] is True:
-        frames = system.add_virtual_nodes_in_bonds(frames)
+    if dft_options["ASSIGN_VIRTUAL_NODES"] is not None:
+        frames = geometry.add_virtual_nodes(
+            frames, method=dft_options["ASSIGN_VIRTUAL_NODES"]
+        )
 
     # Build the calculation settings for each frame in turn
-    for A, frame in enumerate(frames):
+    for A, frame in zip(frame_idxs, frames):
 
         # Make RI dir and copy settings file
         if not exists(dft_options["SCF_DIR"](A)):

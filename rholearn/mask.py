@@ -9,7 +9,7 @@ import metatensor.torch
 import numpy as np
 from chemfiles import Frame
 
-from rholearn.utils import _dispatch, system
+from rholearn.utils import _dispatch, geometry, system
 
 
 def get_atom_idxs_by_region(
@@ -214,7 +214,8 @@ def cutoff_overlap_matrix(
     frames: List[Frame],
     frame_idxs: List[int],
     overlap_matrix: Union[metatensor.TensorMap, metatensor.torch.TensorMap],
-    cutoff: float,
+    cutoff: Optional[float] = None,
+    radii: Optional[dict] = None,
     drop_empty_blocks: bool = False,
     backend: Optional[str] = "numpy",
 ) -> Union[metatensor.TensorMap, metatensor.torch.TensorMap]:
@@ -235,12 +236,51 @@ def cutoff_overlap_matrix(
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
+    # First compute the neighbor list, within the specified `cutoff` or the
+    # twice the max radius in `radii`.
+    if cutoff is None:
+        assert radii is not None, "must specify either `cutoff` or `radii`"
+        assert len(frames) == 1 and len(frame_idxs) == 1, (
+            "If passing `radii`, only one frame should be passed"
+        )
+        cutoff = 2 * max(list(radii.values()))
+    else:
+        assert radii is None, "cannot specify both `cutoff` and `radii`"
+    
+    neighborlist = geometry.get_neighbor_list(
+        frames, frame_idxs, cutoff=cutoff, backend=backend
+    )
+
+    # If `radii` is passed, slice the neighborlist to account for 
+    # max radii of each chemical species
+    if radii is not None:
+        assert len(frames) == 1
+        frame = frames[0]
+
+        keep_idxs = []
+        atom_types = system.get_types(frame)
+        for label_idx, (_, i, j) in enumerate(neighborlist):
+            if (
+                frame.distance(i, j) <= radii[atom_types[i]] + radii[atom_types[j]]
+            ):
+                keep_idxs.append(label_idx)
+
+        neighborlist = mts.Labels(
+            names=neighborlist.names,
+            values=_dispatch.int_array(
+                [
+                    [elem for elem in neighborlist.values[label_idx]]
+                    for label_idx in keep_idxs
+                ],
+                backend=backend,
+            )
+        )
+
+    # Now slice the overlap matrix based on the neighbor list
     overlap_matrix_masked = mts.slice(
         overlap_matrix,
         axis="samples",
-        labels=system.get_neighbor_list(
-            frames, frame_idxs, cutoff=cutoff, backend=backend
-        ),
+        labels=neighborlist,
     )
 
     if drop_empty_blocks:

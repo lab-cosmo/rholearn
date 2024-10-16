@@ -58,6 +58,16 @@ def labels(names, values, backend: str):
 
     raise ValueError(f"Unknown backend: {backend}")
 
+def norm(array, axis, backend: str):
+
+    if backend == "torch":
+        return torch.norm(array, dim=axis)
+
+    elif backend == "numpy":
+        return np.linalg.norm(array, axis=axis)
+
+    raise ValueError(f"Unknown backend: {backend}")
+
 
 def stack(arrays, axis, backend: str):
 

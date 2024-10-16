@@ -13,7 +13,7 @@ from chemfiles import Frame
 from rholearn import mask
 from rholearn.aims_interface import hpc, io, orbitals
 from rholearn.options import get_options
-from rholearn.utils import system
+from rholearn.utils import geometry, system
 from rholearn.utils.io import pickle_dict, unpickle_dict
 
 
@@ -35,8 +35,10 @@ def run_ri_fit() -> None:
         frame_idxs = list(range(len(frames)))
 
     # Add virtual nodes if applicable
-    if dft_options["VIRTUAL_NODES"] is True:
-        frames = system.add_virtual_nodes_in_bonds(frames)
+    if dft_options["ASSIGN_VIRTUAL_NODES"] is not None:
+        frames = geometry.add_virtual_nodes(
+            frames, method=dft_options["ASSIGN_VIRTUAL_NODES"]
+        )
 
     # Write submission script and run FHI-aims via sbatch array
     fname = f"run-aims-ri-{hpc.timestamp()}.sh"
@@ -101,9 +103,11 @@ def setup_ri_fit_for_frame(frame_idx: int) -> None:
     # Get the frames and indices
     frame = system.read_frames_from_xyz(dft_options["XYZ"])[frame_idx]
 
-    # Add virtual nodes if applicable
-    if dft_options["VIRTUAL_NODES"] is True:
-        frame = system.add_virtual_nodes_in_bonds(frame)
+   # Add virtual nodes if applicable
+    if dft_options["ASSIGN_VIRTUAL_NODES"] is not None:
+        frame = geometry.add_virtual_nodes(
+            frame, method=dft_options["ASSIGN_VIRTUAL_NODES"]
+        )
 
     # Retype masked atoms for the RI calculation
     if dft_options["MASK"] is not None:
@@ -142,7 +146,7 @@ def setup_ri_fit_for_frame(frame_idx: int) -> None:
     return
 
 
-def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
+def process_ri_fit() -> None:
     """
     Processes the outputs of the RI fitting calculation(s)
     """
@@ -157,8 +161,9 @@ def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
         frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
 
     for A in frame_idxs:
-        shutil.copy("dft-options.yaml", dft_options["RI_DIR"](A))
-        shutil.copy("hpc-options.yaml", dft_options["RI_DIR"](A))
+        os.makedirs(dft_options["PROCESSED_DIR"](A), exist_ok=True)
+        shutil.copy("dft-options.yaml", dft_options["PROCESSED_DIR"](A))
+        shutil.copy("hpc-options.yaml", dft_options["PROCESSED_DIR"](A))
 
     python_command = (
         'python3 -c "from rholearn.aims_interface import parser; '
@@ -167,10 +172,11 @@ def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
         "parser.process_ri_outputs("
         "aims_output_dir='.',"
         ' structure_idx="${ARRAY_IDX}",'
-        f" ovlp_cond_num={'True' if get_ovlp_cond_num else 'False'},"
+        f" ovlp_cond_num={'True' if dft_options['PROCESS_RI']['overlap_cond_num'] else 'False'},"
+        f" cutoff_ovlp={'True' if dft_options['PROCESS_RI']['cutoff_overlap'] else 'False'},"
         f" save_dir='{dft_options['PROCESSED_DIR']('${ARRAY_IDX}')}',"
         ");"
-        "parser.process_df_error("
+        " parser.process_df_error("
         f"aims_output_dir='{dft_options['RI_DIR']('${ARRAY_IDX}')}',"
         f" save_dir='{dft_options['PROCESSED_DIR']('${ARRAY_IDX}')}',"
         ')"'
