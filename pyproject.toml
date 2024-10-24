@@ -37,7 +37,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = [
-    "rholearn",
     "rholearn.aims_interface",
     "rholearn.doslearn",
     "rholearn.options",
@@ -53,5 +52,7 @@ rholearn_setup_ri_fit = "rholearn.aims_interface.ri_fit:setup_ri_fit"
 rholearn_run_ri_fit = "rholearn.aims_interface.ri_fit:run_ri_fit"
 rholearn_process_ri_fit = "rholearn.aims_interface.ri_fit:process_ri_fit"
 rholearn_run_ri_rebuild = "rholearn.aims_interface.ri_rebuild:run_ri_rebuild"
-rholearn_train = "rholearn.train:train"
-rholearn_eval = "rholearn.eval:eval"
+rholearn_train = "rholearn.rholearn.train:train"
+rholearn_eval = "rholearn.rholearn.eval:eval"
+doslearn_train = "rholearn.doslearn.train:train"
+doslearn_eval = "rholearn.doslearn.eval:eval"

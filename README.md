@@ -2,15 +2,23 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.13891847.svg)](https://doi.org/10.5281/zenodo.13891847)
 
-**A torch-based workflow for training descriptor-based equivariant neural networks to predict real-space electronic density scalar fields of molecules and materials at near-DFT accuracy.**
+`metatensor-torch`-based workflows for training descriptor-based equivariant neural networks to predict at DFT-level accuracy:
 
-**Author**: [Joseph W. Abbott](https://linktr.ee/josephabbott), PhD Student @ Lab COSMO, EPFL
+* real-space electronic density scalar fields decomposed on a basis (molecular & periodic systems)
+* electronic density of states (DOS) (periodic systems)
+
+
+**Authors**: 
+* [Joseph W. Abbott](https://linktr.ee/josephabbott), PhD Student @ Lab COSMO, EPFL
+* Wei Bin How, PhD Student @ Lab COSMO, EPFL
 
 **Note:** under active development, breaking changes are likely!
 
 ![rholearn workflow summary](example/assets/rholearn.png)
 
 # Background
+
+## Real-space electronic densities
 
 Electronic densities, such as the electron density and local density of states, are central quantities in understanding the electronic properties of molecules and materials on the atomic scale. First principles quantum simulations such as density-functional theory (DFT) are able to accurately predict such fields as a linear combination of single-particle solutions to the Kohn-Sham equations. While reliable and accurate, such methods scale unfavourably with the number of electrons in the system. 
 

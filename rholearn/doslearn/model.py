@@ -9,7 +9,7 @@ from rascaline.torch import SoapPowerSpectrum
 import metatensor.torch as mts
 from metatensor.torch.learn import ModuleMap
 
-import system
+from rholearn.utils import system
 
 
 class SoapDosNet(torch.nn.Module):
