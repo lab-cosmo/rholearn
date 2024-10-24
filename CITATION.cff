@@ -1,11 +1,16 @@
-abstract: <p>A torch-based workflow for training descriptor-based equivariant neural
-  networks to predict real-space electronic density scalar fields of molecules and
-  materials at near-DFT accuracy.</p>
+abstract: <p>metatensor-torch workflows for training descriptor-based 
+    equivariant neural networks to predict at DFT accuracy: 1) real-space 
+    electronic density scalar fields decomposed on a basis and 2) global 
+    electronic density of states.</p>
 authors:
 - affiliation: Lab COSMO, EPFL
   family-names: Abbott
   given-names: Joseph W.
   orcid: 0000-0002-0502-6790
+- affiliation: Lab COSMO, EPFL
+  family-names: How
+  given-names: Wei Bin
+  orcid: 0000-0002-1060-5885
 - affiliation: Lab COSMO, EPFL
   family-names: Fraux
   given-names: Guillaume

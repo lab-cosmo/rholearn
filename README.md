@@ -2,10 +2,10 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.13891847.svg)](https://doi.org/10.5281/zenodo.13891847)
 
-`metatensor-torch`-based workflows for training descriptor-based equivariant neural networks to predict at DFT-level accuracy:
+`metatensor-torch` workflows for training descriptor-based equivariant neural networks to predict at DFT-level accuracy:
 
-* real-space electronic density scalar fields decomposed on a basis (molecular & periodic systems)
-* electronic density of states (DOS) (periodic systems)
+1) real-space electronic density scalar fields decomposed on a basis (molecular & periodic systems)
+2) electronic density of states (DOS) (periodic systems)
 
 
 **Authors**: 
@@ -110,6 +110,7 @@ For a more in-depth walkthrough of the functionality, see this [tutorial](exampl
 ```bib
 @software{abbott_2024_13891847,
   author       = {Abbott, Joseph W. and
+                  How, Wei Bin and
                   Fraux, Guillaume and
                   Ceriotti, Michele},
   title        = {lab-cosmo/rholearn: rholearn v0.1.0},
