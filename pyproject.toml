@@ -1,9 +1,10 @@
 [project]
 name = "rholearn"
 version = "0.1.0"
-description = "Metatensor-torch framework for learning electronic densities decomposed on a basis"
+description = "Metatensor-torch framework for learning real-space electronic densities decomposed on a basis, and global electronic density of states."
 authors = [
     {name = "Joseph W. Abbott", email = "joseph.william.abbott@gmail.com"},
+    {name = "Wei Bin How", email = "weibin.how@epfl.ch"},
     {name = "Guillaume Fraux", email = "guillaume.fraux@epfl.ch"},
 ]
 dependencies = [
@@ -11,6 +12,7 @@ dependencies = [
     "numpy",
     "pyyaml",
     "py3dmol",
+    "scipy",
     "tox",
 
     # Dependencies from the COSMO (+ friends) stack
@@ -23,7 +25,7 @@ dependencies = [
     # Extra dependencies
     "cube_toolz @ git+https://github.com/funkymunkycool/Cube-Toolz",
 ]
-keywords = ["machine learning", "electronic densities"]
+keywords = ["machine learning", "electronic densities", "density of states"]
 
 [project.urls]
 repository = "https://github.com/lab-cosmo/rholearn"
@@ -37,7 +39,9 @@ build-backend = "setuptools.build_meta"
 packages = [
     "rholearn",
     "rholearn.aims_interface",
+    "rholearn.doslearn",
     "rholearn.options",
+    "rholearn.rholearn",
     "rholearn.utils",
 ]
 package-data = {"rholearn" = ["rholearn/options/*.yaml"]}

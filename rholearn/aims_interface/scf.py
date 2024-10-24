@@ -19,6 +19,10 @@ def run_scf() -> None:
     # Get the DFT and HPC options
     dft_options, hpc_options = _get_options()
 
+    # Add keyword if using doslearn
+    if dft_options.get("DOS") is True:
+        dft_options["SCF"].update({"output": "postscf_eigenvalues"})
+
     # Get the frames and indices
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")

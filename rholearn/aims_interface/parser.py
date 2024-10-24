@@ -4,7 +4,7 @@ Module for parsing outputs from FHI-aims calculations.
 
 import os
 from os.path import exists, join
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import metatensor as mts
 import numpy as np
@@ -708,3 +708,61 @@ def process_df_error(
     )
 
     return
+
+
+
+def check_converged(aims_output_dir: str) -> bool:
+    """
+    Checks aims calculation is converged.
+    """
+    with open(join(aims_output_dir, "aims.out"), "r") as f:
+        if "Have a nice day." in f.read():
+            return True
+        return False
+    
+def parse_fermi_energy(aims_output_dir: str) -> float:
+    """
+    Extracts the Fermi energy (chemical potential) from "aims.out".
+    """
+    with open(join(aims_output_dir, "aims.out"), "r") as f:
+        lines = f.readlines()
+    
+
+    for line in lines[::-1]:  # read from bottom up
+        if '| Chemical potential (Fermi level):' in line:
+            return float(line.split()[-2])
+    raise ValueError("Fermi energy not found in aims.out")
+
+def parse_eigenvalues(aims_output_dir: str) -> torch.Tensor:
+    """
+    Parses the eigenvalues from the output file of an AIMS calculation.
+    """
+
+    echunk = False  # Determines if we are in the output chunk with the eigenenergies
+    first = True
+    energies = []
+    k_energy = []
+    with open(join(aims_output_dir, "Final_KS_eigenvalues.dat"), "r") as f:
+        while True:
+            line = f.readline()
+            if "k-point number:" in line:
+                echunk = False  # We have reached the start of the next k-point
+                if first: # Save the stored eigenenergies for each k-point, unless its the first one
+                    first = False
+                else:
+                    energies.append(k_energy)
+            if echunk:
+                try:
+                    energy = float(line.split()[-1])
+                    k_energy.append(energy)
+                except:
+                    pass
+
+            if "k-point in cartesian units" in line:
+                echunk = True
+                k_energy = []
+            if line == '':
+                energies.append(k_energy)
+                break
+
+    return energies
