@@ -36,7 +36,7 @@ You can also inspect the default DFT options, which can be printed with:
 import pprint
 from rholearn.options import get_defaults
 
-pprint.pprint(get_defaults("dft"))
+pprint.pprint(get_defaults("dft", "rholearn"))
 ```
 Any of these can be modified by specification in the local file `dft-options.yaml`.
 
@@ -51,7 +51,7 @@ from rholearn.aims_interface import scf
 
 scf.run_scf()
 ```
-Alternatively, from the command line:` rholearn_run_scf`
+Alternatively, from the command line: `rholearn_run_scf`
 
 After the calculation has finished, the run directory for each structure contains the following files:
 

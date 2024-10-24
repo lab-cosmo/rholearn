@@ -37,9 +37,9 @@ First copy files [dft-options.yaml](../part-1-dft/dft-options.yaml) and [hpc-opt
 You can also inspect the default DFT settings, which can be printed with:
 ```python
 import pprint
-from rholearn.options import get_options
+from rholearn.options import get_defaults
 
-pprint.pprint(get_options("ml"))
+pprint.pprint(get_defaults("ml", "rholearn"))
 ```
 Any of these can be modified by specification in the local file [ml-options.yaml](ml-options.yaml).
 
@@ -48,9 +48,9 @@ Any of these can be modified by specification in the local file [ml-options.yaml
 **Training a model locally** can be done as follows:
 
 ```python
-import rholearn
+from rholearn.rholearn import train
 
-rholearn.train()
+train()
 
 # Alternatively: from the command line
 rholearn_train
@@ -97,9 +97,9 @@ Model, optimizer, and scheduler checkpoints are saved to the `checkpoint/` direc
 The model can then be evaluated on the test set as follows:
 
 ```python
-import rholearn
+from rholearn.rholearn import eval
 
-rholearn.eval()
+eval()
 
 # Alternatively: from the command line
 rholearn_eval
