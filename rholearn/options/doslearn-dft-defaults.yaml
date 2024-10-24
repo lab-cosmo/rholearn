@@ -1,0 +1,11 @@
+# Physical settings for running FHI-aims
+BASE_AIMS:
+  xc: pbe
+  spin: none
+  charge: 0
+  relativistic: atomic_zora scalar
+
+# For SCF procedure
+SCF:
+  output: postscf_eigenvalues
+

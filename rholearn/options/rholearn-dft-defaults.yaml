@@ -10,6 +10,8 @@ SCF:
   elsi_restart: write 1000
   output: cube total_density
 
+DOS: false
+
 # For RI-fitting procedure
 RI:
   ri_full_output: true

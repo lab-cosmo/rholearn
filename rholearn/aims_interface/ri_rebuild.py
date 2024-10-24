@@ -9,7 +9,7 @@ from typing import Callable, List
 import numpy as np
 from chemfiles import Frame
 
-from rholearn import mask
+from rholearn.rholearn import mask
 from rholearn.aims_interface import hpc, io, parser
 from rholearn.options import get_options
 from rholearn.utils import convert, system

@@ -2,15 +2,23 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.13891847.svg)](https://doi.org/10.5281/zenodo.13891847)
 
-**A torch-based workflow for training descriptor-based equivariant neural networks to predict real-space electronic density scalar fields of molecules and materials at near-DFT accuracy.**
+`metatensor-torch` workflows for training descriptor-based equivariant neural networks to predict at DFT-level accuracy:
 
-**Author**: [Joseph W. Abbott](https://linktr.ee/josephabbott), PhD Student @ Lab COSMO, EPFL
+1) real-space electronic density scalar fields decomposed on a basis (molecular & periodic systems)
+2) electronic density of states (DOS) (periodic systems)
+
+
+**Authors**: 
+* [Joseph W. Abbott](https://linktr.ee/josephabbott), PhD Student @ Lab COSMO, EPFL
+* Wei Bin How, PhD Student @ Lab COSMO, EPFL
 
 **Note:** under active development, breaking changes are likely!
 
 ![rholearn workflow summary](example/assets/rholearn.png)
 
 # Background
+
+## Real-space electronic densities
 
 Electronic densities, such as the electron density and local density of states, are central quantities in understanding the electronic properties of molecules and materials on the atomic scale. First principles quantum simulations such as density-functional theory (DFT) are able to accurately predict such fields as a linear combination of single-particle solutions to the Kohn-Sham equations. While reliable and accurate, such methods scale unfavourably with the number of electrons in the system. 
 
@@ -94,7 +102,10 @@ rholearn_eval  # evaluate model with rholearn
 
 ### Tutorial 
 
-For a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn`.
+For a more in-depth walkthrough of the functionality, see the following tutorials:
+
+1. [rholearn tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn` to predict the electron density decomposed on a basis.
+2. [doslearn tutorial](example/doslearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `doslearn` to predict the electron density of states.
 
 
 # Citing this work
@@ -102,6 +113,7 @@ For a more in-depth walkthrough of the functionality, see this [tutorial](exampl
 ```bib
 @software{abbott_2024_13891847,
   author       = {Abbott, Joseph W. and
+                  How, Wei Bin and
                   Fraux, Guillaume and
                   Ceriotti, Michele},
   title        = {lab-cosmo/rholearn: rholearn v0.1.0},

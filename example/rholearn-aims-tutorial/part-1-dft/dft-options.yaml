@@ -1,3 +1,6 @@
+# We want to compute the DOS here in our SCF calculation
+DOS: true
+
 # Absolute path to the top directory where FHI-aims output data will be stored
 DATA_DIR: /path/to/rholearn/example/rholearn-aims-tutorial/part-1-dft/data
 
