@@ -1,5 +1,9 @@
-from typing import List, Optional
+import os
+from os.path import exists, join
+from typing import List, Optional, Tuple
 from chemfiles import Frame
+
+import numpy as np
 import torch
 
 from scipy.interpolate import CubicHermiteSpline
@@ -85,3 +89,53 @@ def spline_eigenenergies(
             )
         ]
     )
+
+
+def create_subdir(ml_dir: str, name: str):
+    """
+    Creates a subdirectory at relative path:and returns path to training subdirectory at
+    relative path:
+
+        f"{`ml_dir`}/{`name`}"
+
+    and returns a callable that points to further subdirectories indexed by the epoch
+    number, i.e.:
+
+        f"{`ml_dir`}/{`name`}/epoch_{`epoch`}"
+
+    where the callable is parametrized by the variable `epoch`. This is used for
+    creating checkpoint and evaluation directories.
+    """
+
+    def subdir(epoch):
+        return join(ml_dir, name, f"epoch_{epoch}")
+
+    if not exists(join(ml_dir, name)):
+        os.makedirs(join(ml_dir, name))
+
+    return subdir
+
+
+def crossval_idx_split(
+    frame_idxs: List[int], n_train: int, n_val: int, n_test: int, seed: int = 42
+) -> Tuple[np.ndarray]:
+    """Shuffles and splits ``frame_idxs``."""
+    # Shuffle idxs using the standard seed (42)
+    frame_idxs_ = frame_idxs.copy()
+    np.random.default_rng(seed=seed).shuffle(frame_idxs_)
+
+    # Take the test set as the first ``n_test`` idxs. This will be consistent regardless
+    # of ``n_train`` and ``n_val``.
+    test_id = frame_idxs_[:n_test]
+
+    # Now shuffle the remaining idxs and draw the train and val idxs
+    frame_idxs_ = frame_idxs_[n_test:]
+
+    train_id = frame_idxs_[:n_train]
+    val_id = frame_idxs_[n_train : n_train + n_val]
+
+    assert len(np.intersect1d(train_id, val_id)) == 0
+    assert len(np.intersect1d(train_id, test_id)) == 0
+    assert len(np.intersect1d(val_id, test_id)) == 0
+
+    return [train_id, val_id, test_id]

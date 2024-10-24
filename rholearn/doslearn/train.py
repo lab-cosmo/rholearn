@@ -164,6 +164,9 @@ def train():
     # TODO!
     # scheduler = ... 
 
+    dt_setup = time.time() - t0_setup
+    io.log(log_path, train_utils.report_dt(dt_setup, "Setup complete"))
+
     # Start training loop
     for epoch in range(ml_options["TRAIN"]["n_epochs"]):
 
@@ -212,12 +215,6 @@ def _get_options():
     # Set some extra directories
     dft_options["SCF_DIR"] = lambda frame_idx: join(
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
-    )
-    dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
-    )
-    dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
     )
     ml_options["ML_DIR"] = os.getcwd()
     ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")
