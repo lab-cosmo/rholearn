@@ -102,7 +102,10 @@ rholearn_eval  # evaluate model with rholearn
 
 ### Tutorial 
 
-For a more in-depth walkthrough of the functionality, see this [tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn`.
+For a more in-depth walkthrough of the functionality, see the following tutorials:
+
+1. [rholearn tutorial](example/rholearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `rholearn` to predict the electron density decomposed on a basis.
+2. [doslearn tutorial](example/doslearn-aims-tutorial/README.md) on data generation using `FHI-aims` and model training using `doslearn` to predict the electron density of states.
 
 
 # Citing this work
