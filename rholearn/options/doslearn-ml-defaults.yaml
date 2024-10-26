@@ -22,11 +22,17 @@ SPHERICAL_EXPANSION_HYPERS:
 
 HIDDEN_LAYER_WIDTHS: null  # null for linear model
 
-DOS:
+PREDICTED_DOS:
   min_energy: -10.0  # eV
   max_energy: 10.0  # eV
-  interval: 0.01  # eV
+  interval: 0.05  # eV
   sigma: 0.3  # eV
+  reference: Fermi # or Hartree
+
+DOS_SPLINES:
+  min_energy: -10.0 # eV
+  max_energy: 13.0 # eV 
+  interval: 0.05 # eV
 
 # For training the model
 TRAIN:
@@ -35,9 +41,9 @@ TRAIN:
   batch_size: 1
   n_epochs: 501  # number of total epochs to run. End in a 1, i.e. 20001.
   restart_epoch: null  # epoch of last saved checkpoint, or None for no restart
-  val_interval: 50  # validate every x intervals
-  log_interval: 50  # epoch interval at which to log metrics
-  checkpoint_interval: 50  # save model and optimizer state every x intervals
+  val_interval: 1  # validate every x intervals
+  log_interval: 100  # epoch interval at which to log metrics
+  checkpoint_interval: 100  # save model and optimizer state every x intervals
 
 # For evaluating a model checkpoint
 EVAL:
@@ -46,9 +52,12 @@ EVAL:
 
 # Args for Adam optimizer
 OPTIMIZER_ARGS:
-  lr: 0.1
+  lr: 0.001
 
 # Args for StepLR scheduler
 SCHEDULER_ARGS:
-  step_size: 10  # NOTE: this is per validation step
+  step_size: 10  # NOTE: this is per validation step ??
   gamma: 0.1
+  patience: 200
+  threshold: 0.00001
+  min_lr : 0.00001
