@@ -1,13 +1,11 @@
 from typing import List, Optional, Union
-import torch
-
-from chemfiles import Frame, Atom
-
-import rascaline.torch
-from rascaline.torch import SoapPowerSpectrum
 
 import metatensor.torch as mts
+import rascaline.torch
+import torch
+from chemfiles import Atom, Frame
 from metatensor.torch.learn import ModuleMap
+from rascaline.torch import SoapPowerSpectrum
 
 from rholearn.utils import system
 
@@ -28,11 +26,13 @@ class SoapDosNet(torch.nn.Module):
         dtype: Optional[torch.dtype] = torch.float64,
         device: Optional[torch.device] = "cpu",
     ) -> None:
-        
-        super(SoapDosNet,self).__init__()
+
+        super(SoapDosNet, self).__init__()
 
         # Construct the descriptor calculator
-        self._spherical_expansion_calc = SoapPowerSpectrum(**soap_hypers).to(dtype=dtype, device=device)
+        self._spherical_expansion_calc = SoapPowerSpectrum(**soap_hypers).to(
+            dtype=dtype, device=device
+        )
         self._atom_types = atom_types
         self._dtype = dtype
         self._device = device
@@ -45,8 +45,8 @@ class SoapDosNet(torch.nn.Module):
         if not isinstance(out_properties, list):
             raise TypeError("out_properties must be a list of mts.Labels")
         out_features = [len(out_props) for out_props in out_properties]
-        
-        # Initialize NNs for each block 
+
+        # Initialize NNs for each block
         if hidden_layer_widths is None:
             nets = [
                 torch.nn.Linear(
@@ -63,10 +63,12 @@ class SoapDosNet(torch.nn.Module):
                 prev_width = len(dummy_descriptor[key].properties)
                 block_hidden_layer_widths = hidden_layer_widths + [out_features[key_i]]
                 for layer_i, width in enumerate(block_hidden_layer_widths):
-                    net.append(torch.nn.Linear(
-                        in_features=prev_width,
-                        out_features=width,
-                    ))
+                    net.append(
+                        torch.nn.Linear(
+                            in_features=prev_width,
+                            out_features=width,
+                        )
+                    )
                     if layer_i < len(block_hidden_layer_widths) - 1:
                         net.append(torch.nn.SiLU())
 
@@ -81,11 +83,8 @@ class SoapDosNet(torch.nn.Module):
         )
         self._nn.to(dtype=dtype, device=device)
 
-
     def compute_descriptor(
-        self,
-        frames: List[Frame],
-        frame_idxs: Optional[List[int]] = None
+        self, frames: List[Frame], frame_idxs: Optional[List[int]] = None
     ) -> mts.TensorMap:
         """
         Compute the SOAP descriptor for a list of frames.
@@ -109,7 +108,6 @@ class SoapDosNet(torch.nn.Module):
             descriptor = self.compute_descriptor(frames).to(self._dtype)
         return self._nn.forward(descriptor)
 
-
     def _get_dummy_descriptor(self) -> mts.TensorMap:
         """
         Builds a dummy :py:class:`chemfiles.Frame` object from the global atom types in
@@ -128,4 +126,3 @@ class SoapDosNet(torch.nn.Module):
         descriptor = self.compute_descriptor([dummy_frame])
 
         return descriptor
-    

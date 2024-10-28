@@ -1,38 +1,40 @@
 import os
 from os.path import exists, join
 from typing import List, Optional, Tuple
-from chemfiles import Frame
-
-import numpy as np
-import torch
-
-from scipy.interpolate import CubicHermiteSpline
 
 import metatensor.torch as mts
+import numpy as np
+import torch
+from chemfiles import Frame
+from scipy.interpolate import CubicHermiteSpline
 
 
-def evaluate_spline(spline_coefs: torch.Tensor, spline_positions: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-    """ Evaluate splines on selected points .
+def evaluate_spline(
+    spline_coefs: torch.Tensor, spline_positions: torch.Tensor, x: torch.Tensor
+) -> torch.Tensor:
+    """Evaluate splines on selected points .
 
     Args:
-        spline_coefs ([tensor]): [Cubic Hermite Spline Coefficients] 
-        spline_positions ([tensor]): [Spline Positions] 
+        spline_coefs ([tensor]): [Cubic Hermite Spline Coefficients]
+        spline_positions ([tensor]): [Spline Positions]
         x ([tensor]): [Points to evaluate splines on]
 
     Returns:
         [tensor]: [Evaluated spline values]
     """
 
-    interval = torch.round(spline_positions[1] - spline_positions[0], decimals = 4)
-    x = torch.clamp(x, min = spline_positions[0], max = spline_positions[-1]- 0.0005)
-    indexes = torch.floor((x - spline_positions[0])/interval).long()
-    expanded_index = indexes.unsqueeze(dim=1).expand(-1,4,-1)
+    interval = torch.round(spline_positions[1] - spline_positions[0], decimals=4)
+    x = torch.clamp(x, min=spline_positions[0], max=spline_positions[-1] - 0.0005)
+    indexes = torch.floor((x - spline_positions[0]) / interval).long()
+    expanded_index = indexes.unsqueeze(dim=1).expand(-1, 4, -1)
     x_1 = x - spline_positions[indexes]
     x_2 = x_1 * x_1
     x_3 = x_2 * x_1
     x_0 = torch.ones_like(x_1)
-    x_powers = torch.stack([x_3, x_2, x_1, x_0]).permute(1,0,2)
-    value = torch.sum(torch.mul(x_powers, torch.gather(spline_coefs, 2, expanded_index)), axis = 1) 
+    x_powers = torch.stack([x_3, x_2, x_1, x_0]).permute(1, 0, 2)
+    value = torch.sum(
+        torch.mul(x_powers, torch.gather(spline_coefs, 2, expanded_index)), axis=1
+    )
     return value
 
 
@@ -59,15 +61,33 @@ def spline_eigenenergies(
     x_dos = min_energy + torch.arange(n_grid_points) * interval
 
     # Compute normalization factors
-    normalization = (1 / torch.sqrt(2 * torch.tensor(np.pi) * sigma ** 2) / len(frame.positions) / n_kpts).to(dtype)
+    normalization = (
+        1
+        / torch.sqrt(2 * torch.tensor(np.pi) * sigma**2)
+        / len(frame.positions)
+        / n_kpts
+    ).to(dtype)
 
     # Compute DOS at each energy grid point
-    l_dos_E = torch.sum(torch.exp(-0.5*((x_dos - energies.view(-1, 1)) / sigma) ** 2), dim = 0) * 2 * normalization
+    l_dos_E = (
+        torch.sum(
+            torch.exp(-0.5 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2), dim=0
+        )
+        * 2
+        * normalization
+    )
 
     # Compute derivative of DOS at each energy grid point
-    l_dos_E_deriv = torch.sum(torch.exp(-0.5 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2) *
-                                (-1 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2), dim =0) * 2 * normalization
-    
+    l_dos_E_deriv = (
+        torch.sum(
+            torch.exp(-0.5 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2)
+            * (-1 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2),
+            dim=0,
+        )
+        * 2
+        * normalization
+    )
+
     # Compute spline interpolation and return
     splines = torch.tensor(CubicHermiteSpline(x_dos, l_dos_E, l_dos_E_deriv).c)
     splines = splines.reshape(1, *splines.shape)
@@ -77,18 +97,19 @@ def spline_eigenenergies(
         blocks=[
             mts.TensorBlock(
                 samples=mts.Labels(
-                    ["system"], torch.tensor([frame_idx], dtype=torch.int64).reshape(-1, 1)
+                    ["system"],
+                    torch.tensor([frame_idx], dtype=torch.int64).reshape(-1, 1),
                 ),
                 components=[
                     mts.Labels(["coeffs"], torch.arange(4).reshape(-1, 1)),
                 ],
                 properties=mts.Labels(
                     ["point"],
-                    torch.arange(n_grid_points - 1, dtype=torch.int64).reshape(-1, 1)
+                    torch.arange(n_grid_points - 1, dtype=torch.int64).reshape(-1, 1),
                 ),
                 values=splines,
             )
-        ]
+        ],
     )
 
 
@@ -141,127 +162,189 @@ def crossval_idx_split(
 
     return [train_id, val_id, test_id]
 
-def t_get_mse(predicted_dos: torch.Tensor, true_dos: torch.Tensor, x_dos: torch.Tensor) -> torch.Tensor:
-    """Compute mean squared error between two Density of States . """
-    # Check if it contains one DOS sample or a collection of samples 
+
+def t_get_mse(
+    predicted_dos: torch.Tensor, true_dos: torch.Tensor, x_dos: torch.Tensor
+) -> torch.Tensor:
+    """Compute mean squared error between two Density of States ."""
+    # Check if it contains one DOS sample or a collection of samples
     if len(a.size()) > 1:
-        mse = (torch.trapezoid((predicted_dos - true_dos)**2, x_dos, axis=1)).mean()
+        mse = (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=1)).mean()
     else:
-        mse = (torch.trapezoid((predicted_dos - true_dos)**2, x_dos, axis=0)).mean()
+        mse = (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=0)).mean()
     return mse
-        
-def t_get_rmse(predicted_dos: torch.Tensor, true_dos: torch.Tensor, x_dos: torch.Tensor) -> torch.Tensor:
-    """Compute root mean squared error between two Density of States . """
-    # Check if it contains one DOS sample or a collection of samples 
+
+
+def t_get_rmse(
+    predicted_dos: torch.Tensor, true_dos: torch.Tensor, x_dos: torch.Tensor
+) -> torch.Tensor:
+    """Compute root mean squared error between two Density of States ."""
+    # Check if it contains one DOS sample or a collection of samples
     if len(a.size()) > 1:
-        rmse = torch.sqrt((torch.trapezoid((predicted_dos - true_dos)**2, x_dos, axis=1)).mean())
+        rmse = torch.sqrt(
+            (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=1)).mean()
+        )
     else:
-        rmse = torch.sqrt((torch.trapezoid((predicted_dos - true_dos)**2, x_dos, axis=0)).mean())
+        rmse = torch.sqrt(
+            (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=0)).mean()
+        )
     return rmse
 
-def Opt_RMSE_spline(predicted_dos: torch.Tensor, x_dos: torch.Tensor, target_splines: torch.Tensor, spline_positions: torch.Tensor, n_epochs: int) -> Tuple[torch.Tensor]:
-    """RMSE on optimal shift of energy axis. The optimal shift is obtained via grid search followed by gradient descent. """
+
+def Opt_RMSE_spline(
+    predicted_dos: torch.Tensor,
+    x_dos: torch.Tensor,
+    target_splines: torch.Tensor,
+    spline_positions: torch.Tensor,
+    n_epochs: int,
+) -> Tuple[torch.Tensor]:
+    """RMSE on optimal shift of energy axis. The optimal shift is obtained via grid search followed by gradient descent."""
 
     # Performing an initial Grid search to reduce the number of epochs needed for gradient descent
     all_shifts = []
     all_mse = []
     optim_search_mse = []
-    offsets = torch.arange(-2,2,0.1) 
+    offsets = torch.arange(-2, 2, 0.1)
     with torch.no_grad():
         for offset in offsets:
             shifts = torch.zeros(predicted_dos.shape[0]) + offset
-            shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1))
-            loss_i = ((predicted_dos - shifted_target)**2).mean(dim = 1)
+            shifted_target = evaluate_spline(
+                target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+            )
+            loss_i = ((predicted_dos - shifted_target) ** 2).mean(dim=1)
             optim_search_mse.append(loss_i)
         optim_search_mse = torch.vstack(optim_search_mse)
-        min_index = torch.argmin(optim_search_mse, dim = 0)
+        min_index = torch.argmin(optim_search_mse, dim=0)
         optimal_offset = offsets[min_index]
-    
+
     # Fine tuning with gradient descent
 
     offset = optimal_offset
     shifts = torch.nn.parameter.Parameter(offset.float())
-    opt_adam = torch.optim.Adam([shifts], lr = 1e-2)
+    opt_adam = torch.optim.Adam([shifts], lr=1e-2)
     best_shifts = shifts.clone()
 
-    shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1)).detach()
-    each_loss = ((predicted_dos - shifted_target)**2).mean(dim = 1).float() 
+    shifted_target = evaluate_spline(
+        target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+    ).detach()
+    each_loss = ((predicted_dos - shifted_target) ** 2).mean(dim=1).float()
     best_error = each_loss
 
-    for i in (range(n_epochs)):
-        shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1)).detach()
+    for i in range(n_epochs):
+        shifted_target = evaluate_spline(
+            target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+        ).detach()
+
         def closure():
-            opt_adam.zero_grad()            
-            shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1))
-            loss_i = ((predicted_dos - shifted_target)**2).mean()
-            loss_i.backward(gradient = torch.tensor(1), inputs = shifts)
+            opt_adam.zero_grad()
+            shifted_target = evaluate_spline(
+                target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+            )
+            loss_i = ((predicted_dos - shifted_target) ** 2).mean()
+            loss_i.backward(gradient=torch.tensor(1), inputs=shifts)
             return loss_i
+
         mse = opt_adam.step(closure)
-            
+
         with torch.no_grad():
-            shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1)).detach()
-            each_loss = ((predicted_dos - shifted_target)**2).mean(dim = 1).float() 
+            shifted_target = evaluate_spline(
+                target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+            ).detach()
+            each_loss = ((predicted_dos - shifted_target) ** 2).mean(dim=1).float()
             index = each_loss < best_error
             best_error[index] = each_loss[index].clone()
-            best_shifts[index] = shifts[index].clone() 
-    #Evaluate
+            best_shifts[index] = shifts[index].clone()
+    # Evaluate
     optimal_shift = best_shifts
-    shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + optimal_shift.view(-1,1))
+    shifted_target = evaluate_spline(
+        target_splines, spline_positions, x_dos + optimal_shift.view(-1, 1)
+    )
     rmse = t_get_rmse(predicted_dos, shifted_target, x_dos)
     return rmse, optimal_shift
 
-def Opt_MSE_spline(predicted_dos: torch.Tensor, x_dos: torch.Tensor, target_splines: torch.Tensor, spline_positions: torch.Tensor, n_epochs: int) -> Tuple[torch.Tensor]:
-    """MSE on optimal shift of energy axis. The optimal shift is obtained via grid search followed by gradient descent. """
+
+def Opt_MSE_spline(
+    predicted_dos: torch.Tensor,
+    x_dos: torch.Tensor,
+    target_splines: torch.Tensor,
+    spline_positions: torch.Tensor,
+    n_epochs: int,
+) -> Tuple[torch.Tensor]:
+    """MSE on optimal shift of energy axis. The optimal shift is obtained via grid search followed by gradient descent."""
 
     # Performing an initial Grid search to reduce the number of epochs needed for gradient descent
     all_shifts = []
     all_mse = []
     optim_search_mse = []
-    offsets = torch.arange(-2,2,0.1) 
+    offsets = torch.arange(-2, 2, 0.1)
     with torch.no_grad():
         for offset in offsets:
             shifts = torch.zeros(predicted_dos.shape[0]) + offset
-            shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1))
-            loss_i = ((predicted_dos - shifted_target)**2).mean(dim = 1)
+            shifted_target = evaluate_spline(
+                target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+            )
+            loss_i = ((predicted_dos - shifted_target) ** 2).mean(dim=1)
             optim_search_mse.append(loss_i)
         optim_search_mse = torch.vstack(optim_search_mse)
-        min_index = torch.argmin(optim_search_mse, dim = 0)
+        min_index = torch.argmin(optim_search_mse, dim=0)
         optimal_offset = offsets[min_index]
-    
+
     # Fine tuning with gradient descent
 
     offset = optimal_offset
     shifts = torch.nn.parameter.Parameter(offset.float())
-    opt_adam = torch.optim.Adam([shifts], lr = 1e-2)
+    opt_adam = torch.optim.Adam([shifts], lr=1e-2)
     best_shifts = shifts.clone()
 
-    shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1)).detach()
-    each_loss = ((predicted_dos - shifted_target)**2).mean(dim = 1).float() 
+    shifted_target = evaluate_spline(
+        target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+    ).detach()
+    each_loss = ((predicted_dos - shifted_target) ** 2).mean(dim=1).float()
     best_error = each_loss
 
-    for i in (range(n_epochs)):
-        shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1)).detach()
+    for i in range(n_epochs):
+        shifted_target = evaluate_spline(
+            target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+        ).detach()
+
         def closure():
-            opt_adam.zero_grad()            
-            shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1))
-            loss_i = ((predicted_dos - shifted_target)**2).mean()
-            loss_i.backward(gradient = torch.tensor(1), inputs = shifts)
+            opt_adam.zero_grad()
+            shifted_target = evaluate_spline(
+                target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+            )
+            loss_i = ((predicted_dos - shifted_target) ** 2).mean()
+            loss_i.backward(gradient=torch.tensor(1), inputs=shifts)
             return loss_i
+
         mse = opt_adam.step(closure)
-            
+
         with torch.no_grad():
-            shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + shifts.view(-1,1)).detach()
-            each_loss = ((predicted_dos - shifted_target)**2).mean(dim = 1).float() 
+            shifted_target = evaluate_spline(
+                target_splines, spline_positions, x_dos + shifts.view(-1, 1)
+            ).detach()
+            each_loss = ((predicted_dos - shifted_target) ** 2).mean(dim=1).float()
             index = each_loss < best_error
             best_error[index] = each_loss[index].clone()
-            best_shifts[index] = shifts[index].clone() 
-    #Evaluate
+            best_shifts[index] = shifts[index].clone()
+    # Evaluate
     optimal_shift = best_shifts
-    shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + optimal_shift.view(-1,1))
+    shifted_target = evaluate_spline(
+        target_splines, spline_positions, x_dos + optimal_shift.view(-1, 1)
+    )
     rmse = t_get_mse(predicted_dos, shifted_target, x_dos)
     return rmse, optimal_shift
 
-def save_checkpoint(model: torch.nn.Module, best_state, alignment, best_alignment, parameters, optimizer, scheduler, chkpt_dir: str):
+
+def save_checkpoint(
+    model: torch.nn.Module,
+    best_state,
+    alignment,
+    best_alignment,
+    parameters,
+    optimizer,
+    scheduler,
+    chkpt_dir: str,
+):
     """
     Saves model object, model state dict, best state dict, alignment, best alignment, training parameters, optimizer state dict, scheduler state dict,
     to file.
@@ -290,4 +373,3 @@ def save_checkpoint(model: torch.nn.Module, best_state, alignment, best_alignmen
             scheduler.state_dict(),
             join(chkpt_dir, "scheduler_state_dict.pt"),
         )
-

@@ -10,9 +10,9 @@ from os.path import exists, join
 import numpy as np
 from chemfiles import Frame
 
-from rholearn.rholearn import mask
 from rholearn.aims_interface import hpc, io, orbitals
 from rholearn.options import get_options
+from rholearn.rholearn import mask
 from rholearn.utils import system
 from rholearn.utils.io import pickle_dict, unpickle_dict
 

@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 import torch
 
-from rholearn import train_utils
+from rholearn.rholearn import train_utils
 from rholearn.aims_interface import fields, ri_rebuild
 from rholearn.options import get_options
 from rholearn.utils import convert, io, system

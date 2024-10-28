@@ -1,6 +1,6 @@
 import os
-from os.path import join
 import time
+from os.path import join
 
 import torch
 
@@ -51,7 +51,6 @@ def eval():
     )
     all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
     test_frames = [all_frames[A] for A in test_id]
-
 
     # TODO: complete
 

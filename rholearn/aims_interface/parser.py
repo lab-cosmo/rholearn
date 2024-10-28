@@ -710,7 +710,6 @@ def process_df_error(
     return
 
 
-
 def check_converged(aims_output_dir: str) -> bool:
     """
     Checks aims calculation is converged.
@@ -719,21 +718,22 @@ def check_converged(aims_output_dir: str) -> bool:
         if "Have a nice day." in f.read():
             return True
         return False
-    
+
+
 def parse_fermi_energy(aims_output_dir: str) -> float:
     """
     Extracts the Fermi energy (chemical potential) from "aims.out".
     """
     with open(join(aims_output_dir, "aims.out"), "r") as f:
         lines = f.readlines()
-    
 
     for line in lines[::-1]:  # read from bottom up
-        if '| Chemical potential (Fermi level):' in line:
+        if "| Chemical potential (Fermi level):" in line:
             return float(line.split()[-2])
     raise ValueError("Fermi energy not found in aims.out")
 
-def parse_eigenvalues(aims_output_dir: str) -> torch.Tensor:
+
+def parse_eigenvalues(aims_output_dir: str) -> List[List[float]]:
     """
     Parses the eigenvalues from the output file of an AIMS calculation.
     """
@@ -747,7 +747,9 @@ def parse_eigenvalues(aims_output_dir: str) -> torch.Tensor:
             line = f.readline()
             if "k-point number:" in line:
                 echunk = False  # We have reached the start of the next k-point
-                if first: # Save the stored eigenenergies for each k-point, unless its the first one
+                if (
+                    first
+                ):  # Save the stored eigenenergies for each k-point, unless its the first one
                     first = False
                 else:
                     energies.append(k_energy)
@@ -761,7 +763,7 @@ def parse_eigenvalues(aims_output_dir: str) -> torch.Tensor:
             if "k-point in cartesian units" in line:
                 echunk = True
                 k_energy = []
-            if line == '':
+            if line == "":
                 energies.append(k_energy)
                 break
 

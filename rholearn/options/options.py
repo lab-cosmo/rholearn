@@ -23,9 +23,10 @@ def get_options(options_type: str, model: str):
         "hpc",
     ], f"Invalid options_type {options_type}. Must be 'dft' or 'ml'."
 
-    assert model in ["rholearn", "doslearn"], (
-        f"Invalid model {model}. Must be 'rholearn' or 'doslearn'."
-    )
+    assert model in [
+        "rholearn",
+        "doslearn",
+    ], f"Invalid model {model}. Must be 'rholearn' or 'doslearn'."
 
     # First get the defaults
     if options_type == "hpc":
@@ -50,9 +51,10 @@ def get_defaults(options_type: str, model: str):
         "ml",
     ], f"Invalid options_type {options_type}. Must be 'dft' or 'ml'."
 
-    assert model in ["rholearn", "doslearn"], (
-        f"Invalid model {model}. Must be 'rholearn' or 'doslearn'."
-    )
+    assert model in [
+        "rholearn",
+        "doslearn",
+    ], f"Invalid model {model}. Must be 'rholearn' or 'doslearn'."
 
     with open(join(DIR_PATH, f"{model}-{options_type}-defaults.yaml"), "r") as f:
         return yaml.safe_load(f)

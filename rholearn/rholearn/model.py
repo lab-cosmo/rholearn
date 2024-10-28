@@ -11,7 +11,7 @@ from metatensor.torch.learn import nn
 from rascaline.torch import SphericalExpansion
 from rascaline.torch.utils import DensityCorrelations
 
-from rholearn import mask
+from rholearn.rholearn import mask
 from rholearn.utils import _dispatch, system
 
 

@@ -14,7 +14,7 @@ from chemfiles import Frame
 from metatensor.torch.learn.data import DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
-from rholearn import mask
+from rholearn.rholearn import mask
 from rholearn.utils import convert
 
 

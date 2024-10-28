@@ -4,10 +4,10 @@ from os.path import exists, join
 from typing import List
 
 import torch
+from rholearn.rholearn.loss import RhoLoss
+from rholearn.rholearn.model import RhoModel
 
-from rholearn import train_utils
-from rholearn.loss import RhoLoss
-from rholearn.model import RhoModel
+from rholearn.rholearn import train_utils
 from rholearn.options import get_options
 from rholearn.utils import convert, io, system, utils
 
