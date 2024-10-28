@@ -260,3 +260,34 @@ def Opt_MSE_spline(predicted_dos: torch.Tensor, x_dos: torch.Tensor, target_spli
     shifted_target = evaluate_spline(target_splines, spline_positions, x_dos + optimal_shift.view(-1,1))
     rmse = t_get_mse(predicted_dos, shifted_target, x_dos)
     return rmse, optimal_shift
+
+def save_checkpoint(model: torch.nn.Module, best_state, alignment, best_alignment, parameters, optimizer, scheduler, chkpt_dir: str):
+    """
+    Saves model object, model state dict, best state dict, alignment, best alignment, training parameters, optimizer state dict, scheduler state dict,
+    to file.
+    """
+    if not exists(chkpt_dir):  # create chkpoint dir
+        os.makedirs(chkpt_dir)
+
+    torch.save(model, join(chkpt_dir, "model.pt"))  # model obj
+    torch.save(  # model state dict
+        model.state_dict(),
+        join(chkpt_dir, "model_state_dict.pt"),
+    )
+
+    torch.save(best_state, join(chkpt_dir, "best_model_state.pt"))  # best_state
+
+    torch.save(best_state, join(chkpt_dir, "alignment.pt"))  # alignment
+
+    torch.save(best_state, join(chkpt_dir, "best_alignment.pt"))  # best_alignment
+
+    torch.save(parameters, join(chkpt_dir, "parameters.pt"))
+
+    # Optimizer and scheduler
+    torch.save(optimizer.state_dict(), join(chkpt_dir, "optimizer_state_dict.pt"))
+    if scheduler is not None:
+        torch.save(
+            scheduler.state_dict(),
+            join(chkpt_dir, "scheduler_state_dict.pt"),
+        )
+

@@ -39,24 +39,19 @@ TRAIN:
   device: cpu
   dtype: float64  # important for model accuracy
   batch_size: 1
-  n_epochs: 501  # number of total epochs to run. End in a 1, i.e. 20001.
+  val_batch_size: 1 # Use the highest number that can fit in the memory
+  n_epochs: 500
   restart_epoch: null  # epoch of last saved checkpoint, or None for no restart
   val_interval: 1  # validate every x intervals
   log_interval: 100  # epoch interval at which to log metrics
   checkpoint_interval: 100  # save model and optimizer state every x intervals
 
-# For evaluating a model checkpoint
-EVAL:
-  eval_epoch: best
-  target_type: ri  # evaluate MAE against SCF ("scf") or RI ("ri") scalar field
-
 # Args for Adam optimizer
 OPTIMIZER_ARGS:
   lr: 0.001
 
-# Args for StepLR scheduler
+# For ReduceLRonPlateau
 SCHEDULER_ARGS:
-  step_size: 10  # NOTE: this is per validation step ??
   gamma: 0.1
   patience: 200
   threshold: 0.00001

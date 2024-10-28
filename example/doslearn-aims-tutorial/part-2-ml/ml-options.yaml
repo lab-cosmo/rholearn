@@ -4,8 +4,6 @@ N_VAL: 2
 N_TEST: 2
 
 # Other user settings here:
-ML_DIR : "./"
-CHKPT_DIR: "./checkpoints/"
 
 # For training the model
 TRAIN:
