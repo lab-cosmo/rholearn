@@ -55,7 +55,7 @@ def train():
     # Initialize or load pre-trained model, initialize new optimizer and scheduler
     if ml_options["TRAIN"]["restart_epoch"] is None:
 
-        epochs = torch.arange(ml_options["TRAIN"]["n_epochs"] + 1)
+        epochs = torch.arange(1, ml_options["TRAIN"]["n_epochs"] + 1)
 
         if ml_options["PRETRAINED_MODEL"] is None:  # initialize model from scratch
             io.log(log_path, "Initializing model")
@@ -103,6 +103,9 @@ def train():
                 optimizer, **ml_options["SCHEDULER_ARGS"]
             )
 
+        # Initialize the best validation loss
+        best_val_loss = torch.tensor(float("inf"))
+
     # Load model, optimizer, scheduler from checkpoint for restarting training
     else:
 
@@ -144,6 +147,14 @@ def train():
                     "scheduler.pt",
                 )
             )
+
+        # Load the validation loss
+        best_val_loss = torch.load(
+            join(
+                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                    "val_loss.pt",
+                )
+        )
 
     # Try a model save/load
     torch.save(model, join(ml_options["ML_DIR"], "model.pt"))
@@ -231,6 +242,7 @@ def train():
         },
     )
 
+    # Finish setup
     dt_setup = time.time() - t0_setup
     io.log(log_path, train_utils.report_dt(dt_setup, "Setup complete"))
 
@@ -239,7 +251,6 @@ def train():
     io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1]}")
 
     t0_training = time.time()
-    best_val_loss = torch.tensor(float("inf"))
     for epoch in epochs:
 
         # Run training step at every epoch
@@ -319,6 +330,10 @@ def train():
                 model, optimizer, scheduler, chkpt_dir=ml_options["CHKPT_DIR"]("best")
             )
 
+        # TODO: Early stopping!
+        # if scheduler.get_last_lr() <= ml_options["SCHEDULER_ARGS"]["min_lr"]:
+        #     break
+
     # Finish
     dt_train = time.time() - t0_training
     io.log(log_path, train_utils.report_dt(dt_train, "Training complete"))
@@ -339,10 +354,10 @@ def _get_options():
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
     dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
     )
     dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
     )
     ml_options["ML_DIR"] = os.getcwd()
     ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")

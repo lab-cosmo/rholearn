@@ -1,0 +1,18 @@
+# Absolute path to the top directory where FHI-aims output data is/will be stored
+DATA_DIR: /path/to/data
+
+# Absolute path to .xyz file containing the whole dataset
+XYZ: /path/to/frames.xyz
+
+# The FHI-aims run command, including absolute path to aims executable
+AIMS_COMMAND: "srun /path/to/aims.x < control.in > aims.out"
+
+# Absolute path to species defaults directory
+SPECIES_DEFAULTS: /path/to/fhi-aims/species_defaults/
+
+# Define DOS parameters
+DOS_SPLINES:
+  min_energy: null
+  max_energy: null
+  interval: null
+  sigma: null

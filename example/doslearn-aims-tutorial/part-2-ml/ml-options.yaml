@@ -4,13 +4,14 @@ N_VAL: 2
 N_TEST: 2
 
 # Other user settings here:
+# ...
 
 # For training the model
 TRAIN:
   batch_size: 2
-  n_epochs: 1001  # number of total epochs to run. End in a 1, i.e. 1001.
+  n_epochs: 10001  # number of total epochs to run. End in a 1, i.e. 1001.
   restart_epoch: null  # epoch of last saved checkpoint, or None for no restart
-  val_interval: 50  # validate every x intervals
-  log_interval: 50  # epoch interval at which to log metrics
-  checkpoint_interval: 100  # save model and optimizer state every x intervals
+  val_interval: 1  # validate every x intervals
+  log_interval: 200  # epoch interval at which to log metrics
+  checkpoint_interval: 1000  # save model and optimizer state every x intervals
 

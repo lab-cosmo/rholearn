@@ -9,3 +9,8 @@ BASE_AIMS:
 SCF:
   output: postscf_eigenvalues
 
+# To generate data for a subset of the structures in the XYZ file
+IDX_SUBSET: null
+
+# A unique ID for the data splining procedure
+RUN_ID: dos

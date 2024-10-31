@@ -6,21 +6,89 @@ import metatensor.torch as mts
 import numpy as np
 import torch
 from chemfiles import Frame
-from scipy.interpolate import CubicHermiteSpline
 
+
+from metatensor.torch.learn.data import IndexedDataset
+
+
+def get_dataset(
+    frames: List[Frame],
+    frame_idxs: List[int],
+    model: torch.nn.Module,
+    load_dir: callable,
+    precomputed_descriptors: bool,
+    dtype: Optional[torch.dtype],
+    device: Optional[str],
+) -> torch.nn.Module:
+    """
+    Builds a dataset for the given ``frames``, using the ``model`` to pre-compute and
+    store descriptors.
+    """
+    if not isinstance(frame_idxs, list):
+        frame_idxs = list(frame_idxs)
+
+    # Descriptors
+    if precomputed_descriptors:
+        if not exists(load_dir(frame_idxs[0])):
+            raise FileNotFoundError(
+                f"Precomputed descriptors not found in {load_dir(frame_idxs[0])}"
+            )
+        descriptors = [
+            mts.load(join(load_dir(A), "descriptor.npz"))
+            for A in frame_idxs
+        ]
+    else:
+        descriptors = model.compute_descriptor(
+            frames=frames,
+            frame_idxs=frame_idxs,
+        )
+        descriptors = [
+            mts.slice(
+                descriptors,
+                "samples",
+                mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+            )
+            for A in frame_idxs
+        ]
+
+    # Load splines
+    splines = [
+        mts.load(join(load_dir(A), "dos_spline.npz")).to(dtype=dtype, device=device)
+        for A in frame_idxs
+    ]
+
+    return IndexedDataset(
+        sample_id=frame_idxs,
+        frames=frames,
+        descriptor=descriptors,
+        splines=splines,
+    )
+
+def get_spline_positions(
+    min_energy: float, max_energy: float, interval: float
+) -> torch.Tensor:
+    """
+    Get spline positions for the given energy range and interval.
+    """
+    n_spline_points = int(
+        torch.ceil(torch.tensor(max_energy - min_energy) / interval)
+    )
+    return min_energy + torch.arange(n_spline_points) * interval
 
 def evaluate_spline(
     spline_coefs: torch.Tensor, spline_positions: torch.Tensor, x: torch.Tensor
 ) -> torch.Tensor:
-    """Evaluate splines on selected points .
+    """
+    Evaluate splines on selected points.
 
-    Args:
-        spline_coefs ([tensor]): [Cubic Hermite Spline Coefficients]
-        spline_positions ([tensor]): [Spline Positions]
-        x ([tensor]): [Points to evaluate splines on]
+    :param spline_coefs: :py:class:`torch.Tensor` corresponding to the Cubic Hermite
+        Spline Coefficients
+    :param spline_positions: :py:class:`torch.Tensor` corresponding to the Spline
+        Positions
+    :param x: :py:class:`torch.Tensor` corresponding to the points to evaluate splines
+        on.
 
-    Returns:
-        [tensor]: [Evaluated spline values]
+    :return: :py:class:`torch.Tensor` evaluated spline values.
     """
 
     interval = torch.round(spline_positions[1] - spline_positions[0], decimals=4)
@@ -38,137 +106,13 @@ def evaluate_spline(
     return value
 
 
-def spline_eigenenergies(
-    frame: Frame,
-    frame_idx: int,
-    energies: List[float],
-    reference: float,
-    sigma: float,
-    min_energy: float,
-    max_energy: float,
-    interval: float,
-    dtype: Optional[torch.dtype] = torch.float64,
-) -> torch.Tensor:
-    """
-    Splines a list of list of eigenenergies for each k-point to a common grid.
-    """
-    # Store number of k-points, flatten eigenenergies and apply energy reference adjustment
-    n_kpts = len(energies)
-    energies = torch.tensor(energies, dtype=dtype).flatten() - reference
-
-    # Create energy grid
-    n_grid_points = int(torch.ceil(torch.tensor(max_energy - min_energy) / interval))
-    x_dos = min_energy + torch.arange(n_grid_points) * interval
-
-    # Compute normalization factors
-    normalization = (
-        1
-        / torch.sqrt(2 * torch.tensor(np.pi) * sigma**2)
-        / len(frame.positions)
-        / n_kpts
-    ).to(dtype)
-
-    # Compute DOS at each energy grid point
-    l_dos_E = (
-        torch.sum(
-            torch.exp(-0.5 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2), dim=0
-        )
-        * 2
-        * normalization
-    )
-
-    # Compute derivative of DOS at each energy grid point
-    l_dos_E_deriv = (
-        torch.sum(
-            torch.exp(-0.5 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2)
-            * (-1 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2),
-            dim=0,
-        )
-        * 2
-        * normalization
-    )
-
-    # Compute spline interpolation and return
-    splines = torch.tensor(CubicHermiteSpline(x_dos, l_dos_E, l_dos_E_deriv).c)
-    splines = splines.reshape(1, *splines.shape)
-
-    return mts.TensorMap(
-        keys=mts.Labels.single(),
-        blocks=[
-            mts.TensorBlock(
-                samples=mts.Labels(
-                    ["system"],
-                    torch.tensor([frame_idx], dtype=torch.int64).reshape(-1, 1),
-                ),
-                components=[
-                    mts.Labels(["coeffs"], torch.arange(4).reshape(-1, 1)),
-                ],
-                properties=mts.Labels(
-                    ["point"],
-                    torch.arange(n_grid_points - 1, dtype=torch.int64).reshape(-1, 1),
-                ),
-                values=splines,
-            )
-        ],
-    )
-
-
-def create_subdir(ml_dir: str, name: str):
-    """
-    Creates a subdirectory at relative path:and returns path to training subdirectory at
-    relative path:
-
-        f"{`ml_dir`}/{`name`}"
-
-    and returns a callable that points to further subdirectories indexed by the epoch
-    number, i.e.:
-
-        f"{`ml_dir`}/{`name`}/epoch_{`epoch`}"
-
-    where the callable is parametrized by the variable `epoch`. This is used for
-    creating checkpoint and evaluation directories.
-    """
-
-    def subdir(epoch):
-        return join(ml_dir, name, f"epoch_{epoch}")
-
-    if not exists(join(ml_dir, name)):
-        os.makedirs(join(ml_dir, name))
-
-    return subdir
-
-
-def crossval_idx_split(
-    frame_idxs: List[int], n_train: int, n_val: int, n_test: int, seed: int = 42
-) -> Tuple[np.ndarray]:
-    """Shuffles and splits ``frame_idxs``."""
-    # Shuffle idxs using the standard seed (42)
-    frame_idxs_ = frame_idxs.copy()
-    np.random.default_rng(seed=seed).shuffle(frame_idxs_)
-
-    # Take the test set as the first ``n_test`` idxs. This will be consistent regardless
-    # of ``n_train`` and ``n_val``.
-    test_id = frame_idxs_[:n_test]
-
-    # Now shuffle the remaining idxs and draw the train and val idxs
-    frame_idxs_ = frame_idxs_[n_test:]
-
-    train_id = frame_idxs_[:n_train]
-    val_id = frame_idxs_[n_train : n_train + n_val]
-
-    assert len(np.intersect1d(train_id, val_id)) == 0
-    assert len(np.intersect1d(train_id, test_id)) == 0
-    assert len(np.intersect1d(val_id, test_id)) == 0
-
-    return [train_id, val_id, test_id]
-
 
 def t_get_mse(
     predicted_dos: torch.Tensor, true_dos: torch.Tensor, x_dos: torch.Tensor
 ) -> torch.Tensor:
     """Compute mean squared error between two Density of States ."""
     # Check if it contains one DOS sample or a collection of samples
-    if len(a.size()) > 1:
+    if len(predicted_dos.size()) > 1:
         mse = (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=1)).mean()
     else:
         mse = (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=0)).mean()
@@ -180,7 +124,7 @@ def t_get_rmse(
 ) -> torch.Tensor:
     """Compute root mean squared error between two Density of States ."""
     # Check if it contains one DOS sample or a collection of samples
-    if len(a.size()) > 1:
+    if len(predicted_dos.size()) > 1:
         rmse = torch.sqrt(
             (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=1)).mean()
         )
@@ -191,7 +135,7 @@ def t_get_rmse(
     return rmse
 
 
-def Opt_RMSE_spline(
+def opt_rmse_spline(
     predicted_dos: torch.Tensor,
     x_dos: torch.Tensor,
     target_splines: torch.Tensor,
@@ -263,7 +207,7 @@ def Opt_RMSE_spline(
     return rmse, optimal_shift
 
 
-def Opt_MSE_spline(
+def opt_mse_spline(
     predicted_dos: torch.Tensor,
     x_dos: torch.Tensor,
     target_splines: torch.Tensor,
@@ -334,42 +278,3 @@ def Opt_MSE_spline(
     rmse = t_get_mse(predicted_dos, shifted_target, x_dos)
     return rmse, optimal_shift
 
-
-def save_checkpoint(
-    model: torch.nn.Module,
-    best_state,
-    alignment,
-    best_alignment,
-    parameters,
-    optimizer,
-    scheduler,
-    chkpt_dir: str,
-):
-    """
-    Saves model object, model state dict, best state dict, alignment, best alignment, training parameters, optimizer state dict, scheduler state dict,
-    to file.
-    """
-    if not exists(chkpt_dir):  # create chkpoint dir
-        os.makedirs(chkpt_dir)
-
-    torch.save(model, join(chkpt_dir, "model.pt"))  # model obj
-    torch.save(  # model state dict
-        model.state_dict(),
-        join(chkpt_dir, "model_state_dict.pt"),
-    )
-
-    torch.save(best_state, join(chkpt_dir, "best_model_state.pt"))  # best_state
-
-    torch.save(best_state, join(chkpt_dir, "alignment.pt"))  # alignment
-
-    torch.save(best_state, join(chkpt_dir, "best_alignment.pt"))  # best_alignment
-
-    torch.save(parameters, join(chkpt_dir, "parameters.pt"))
-
-    # Optimizer and scheduler
-    torch.save(optimizer.state_dict(), join(chkpt_dir, "optimizer_state_dict.pt"))
-    if scheduler is not None:
-        torch.save(
-            scheduler.state_dict(),
-            join(chkpt_dir, "scheduler_state_dict.pt"),
-        )

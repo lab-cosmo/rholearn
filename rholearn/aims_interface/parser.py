@@ -6,9 +6,13 @@ import os
 from os.path import exists, join
 from typing import Callable, List, Optional, Tuple, Union
 
-import metatensor as mts
+import metatensor
+import metatensor.torch
 import numpy as np
+import torch
+
 from chemfiles import Frame
+from scipy.interpolate import CubicHermiteSpline
 
 from rholearn.aims_interface import fields, io, parser
 from rholearn.utils import convert, system, utils
@@ -605,7 +609,7 @@ def process_ri_outputs(
         structure_idx=structure_idx,
         backend="numpy",
     )
-    mts.save(join(save_dir, "ri_coeffs.npz"), coeffs_mts)
+    metatensor.save(join(save_dir, "ri_coeffs.npz"), coeffs_mts)
 
     # ===== RI projections
 
@@ -621,7 +625,7 @@ def process_ri_outputs(
         structure_idx=structure_idx,
         backend="numpy",
     )
-    mts.save(join(save_dir, "ri_projs.npz"), projs_mts)
+    metatensor.save(join(save_dir, "ri_projs.npz"), projs_mts)
 
     # ===== RI overlap
 
@@ -637,7 +641,7 @@ def process_ri_outputs(
         structure_idx=structure_idx,
         backend="numpy",
     )
-    mts.save(
+    metatensor.save(
         join(save_dir, "ri_ovlp.npz"),
         utils.make_contiguous_numpy(ovlp),
     )
@@ -768,3 +772,86 @@ def parse_eigenvalues(aims_output_dir: str) -> List[List[float]]:
                 break
 
     return energies
+
+def spline_eigenenergies(
+    aims_output_dir: str,
+    frame_idx: int,
+    sigma: float,
+    min_energy: float,
+    max_energy: float,
+    interval: float,
+    dtype: Optional[torch.dtype] = torch.float64,
+    save_dir: Optional[str] = None,
+) -> torch.Tensor:
+    """
+    Splines a list of list of eigenenergies for each k-point to a common grid.
+    """
+    # Parse eigenenergies
+    frame = io.read_geometry(aims_output_dir)
+    energies = parser.parse_eigenvalues(aims_output_dir)
+
+    # Store number of k-points and flatten eigenenergies
+    n_kpts = len(energies)
+    energies = torch.tensor(energies, dtype=dtype).flatten()
+
+    # Create energy grid
+    n_grid_points = int(torch.ceil(torch.tensor(max_energy - min_energy) / interval))
+    x_dos = min_energy + torch.arange(n_grid_points) * interval
+
+    # Compute normalization factors
+    normalization = (
+        1
+        / torch.sqrt(2 * torch.tensor(np.pi) * sigma**2)
+        / len(frame.positions)
+        / n_kpts
+    ).to(dtype)
+
+    # Compute DOS at each energy grid point
+    l_dos_E = (
+        torch.sum(
+            torch.exp(-0.5 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2), dim=0
+        )
+        * 2
+        * normalization
+    )
+
+    # Compute derivative of DOS at each energy grid point
+    l_dos_E_deriv = (
+        torch.sum(
+            torch.exp(-0.5 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2)
+            * (-1 * ((x_dos - energies.view(-1, 1)) / sigma) ** 2),
+            dim=0,
+        )
+        * 2
+        * normalization
+    )
+
+    # Compute spline interpolation and return
+    splines = torch.tensor(CubicHermiteSpline(x_dos, l_dos_E, l_dos_E_deriv).c)
+    splines = splines.reshape(1, *splines.shape)
+
+    splines_mts = metatensor.torch.TensorMap(
+        keys=metatensor.torch.Labels.single(),
+        blocks=[
+            metatensor.torch.TensorBlock(
+                samples=metatensor.torch.Labels(
+                    ["system"],
+                    torch.tensor([frame_idx], dtype=torch.int64).reshape(-1, 1),
+                ),
+                components=[
+                    metatensor.torch.Labels(["coeffs"], torch.arange(4).reshape(-1, 1)),
+                ],
+                properties=metatensor.torch.Labels(
+                    ["point"],
+                    torch.arange(n_grid_points - 1, dtype=torch.int64).reshape(-1, 1),
+                ),
+                values=splines,
+            )
+        ],
+    )
+
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        metatensor.torch.save(join(save_dir, "dos_spline.npz"), splines_mts)
+
+    return splines_mts

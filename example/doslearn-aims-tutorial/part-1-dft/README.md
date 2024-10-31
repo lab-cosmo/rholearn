@@ -9,7 +9,7 @@ After modifying the user options in `dft-options.yaml` and `hpc-options.yaml`, t
 # ...
 
 # Run SCF
-doslearn_run_scf
+rholearn_run_scf
 ```
 
 ## 1.1: Specify DFT and HPC options

@@ -22,24 +22,16 @@ SPHERICAL_EXPANSION_HYPERS:
 
 HIDDEN_LAYER_WIDTHS: null  # null for linear model
 
-PREDICTED_DOS:
-  min_energy: -10.0  # eV
-  max_energy: 10.0  # eV
-  interval: 0.05  # eV
-  sigma: 0.3  # eV
-  reference: Fermi # or Hartree
-
-DOS_SPLINES:
-  min_energy: -10.0 # eV
-  max_energy: 13.0 # eV 
-  interval: 0.05 # eV
+TARGET_DOS:
+  max_energy_buffer: 10  # predict DOS grid 10 eV less than max spline energy
+  reference: Fermi  # or Hartree
 
 # For training the model
 TRAIN:
   device: cpu
   dtype: float64  # important for model accuracy
   batch_size: 1
-  val_batch_size: 1 # Use the highest number that can fit in the memory
+  val_batch_size: null  # use the highest number that can fit in the memory
   n_epochs: 500
   restart_epoch: null  # epoch of last saved checkpoint, or None for no restart
   val_interval: 1  # validate every x intervals
@@ -56,3 +48,9 @@ SCHEDULER_ARGS:
   patience: 200
   threshold: 0.00001
   min_lr : 0.00001
+
+# Path to a pretrained model
+PRETRAINED_MODEL: null
+
+# Precomputed descriptors
+PRECOMPUTED_DESCRIPTORS: false

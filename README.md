@@ -82,7 +82,7 @@ In a run directory, user-options are defined in YAML files named ["dft-options.y
 
 Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](example/options) directory.
 
-Then, data can be generated and model training and evaluation run with the following CLI commands:
+Then, data can be generated with the following CLI commands:
 
 ```bash
 rholearn_run_scf  # run SCF with FHI-aims
@@ -94,11 +94,20 @@ rholearn_setup_ri_fit  # setup RI fitting calculation
 rholearn_run_ri_fit  # run RI fitting with FHI-aims
 
 rholearn_process_ri_fit  # process RI outputs
-
-rholearn_train  # train model with rholearn
-
-rholearn_eval  # evaluate model with rholearn
 ```
+
+and model training and evaluation run with:
+
+```bash
+# rholearn
+rholearn_train  # train model
+rholearn_eval  # evaluate model with rholearn
+
+# doslearn
+doslearn_train  # train model
+doslearn_eval  # evaluate model
+```
+
 
 ### Tutorial 
 

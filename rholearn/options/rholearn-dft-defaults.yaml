@@ -35,7 +35,7 @@ CUBE:
   n_points: [100, 100, 100]
 
 # A unique ID for the RI fit procedure
-RI_FIT_ID: edensity
+RUN_ID: edensity
 
 # The name of the electronic density field
 FIELD_NAME: edensity
@@ -43,5 +43,5 @@ FIELD_NAME: edensity
 # For sample masking
 MASK: null
 
-# To generate data for a subset of the structures
+# To generate data for a subset of the structures in the XYZ file
 IDX_SUBSET: null

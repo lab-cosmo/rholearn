@@ -1,18 +1,26 @@
 import os
 import time
 from functools import partial
-from os.path import join
+from os.path import exists, join
+from typing import List
 
-import metatensor.torch as mts
 import torch
-from metatensor.torch.learn.data import (DataLoader, IndexedDataset,
-                                         group_and_join)
+import metatensor.torch as mts
+from metatensor.torch.learn.data import (
+    DataLoader, IndexedDataset, group_and_join
+)
 
 from rholearn.aims_interface import io, parser
 from rholearn.doslearn import train_utils
 from rholearn.doslearn.model import SoapDosNet
 from rholearn.options import get_options
-from rholearn.utils import system
+from rholearn.rholearn.train_utils import (
+    create_subdir,
+    crossval_idx_split,
+    report_dt,
+    save_checkpoint,
+)
+from rholearn.utils import io, system, utils
 
 
 def train():
@@ -30,9 +38,18 @@ def train():
     t0_setup = time.time()
     dft_options, ml_options = _get_options()
 
-    # Read frames and frame indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = list(range(len(frames)))
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = None
+    # Load all the frames 
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
+    
+    if frame_idxs is None:
+        frame_idxs = list(range(len(all_frames)))
+
+    _check_input_settings(dft_options, ml_options, frame_idxs)  # TODO: basic checks
 
     # ===== Setup =====
     os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
@@ -43,60 +60,134 @@ def train():
     # Random seed and dtype
     torch.manual_seed(ml_options["SEED"])
     torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
-    # Define prediction window
-    n_grid_points = int(
-        torch.ceil(
-            torch.tensor(
-                ml_options["PREDICTED_DOS"]["max_energy"]
-                - ml_options["PREDICTED_DOS"]["min_energy"]
+
+    # ===== Build model, optimizer, and scheduler if applicable =====
+
+    # Initialize or load pre-trained model, initialize new optimizer and scheduler
+    if ml_options["TRAIN"]["restart_epoch"] is None:
+
+        epochs = torch.arange(1, ml_options["TRAIN"]["n_epochs"] + 1)
+
+        if ml_options["PRETRAINED_MODEL"] is None:  # initialize model from scratch
+            io.log(log_path, "Initializing model")
+
+            # Get atom types
+            atom_types = set()
+            for frame in all_frames:
+                for type_ in system.get_types(frame):
+                    atom_types.update({type_})
+            atom_types = list(atom_types)
+
+
+            # Init model
+            model = SoapDosNet(
+                ml_options["SPHERICAL_EXPANSION_HYPERS"],
+                atom_types=atom_types,
+                min_energy=dft_options["DOS_SPLINES"]["min_energy"],
+                max_energy=dft_options["DOS_SPLINES"]["max_energy"] - ml_options["TARGET_DOS"]["max_energy_buffer"],
+                interval=dft_options["DOS_SPLINES"]["interval"],
+                energy_reference=ml_options["TARGET_DOS"]["reference"],
+                hidden_layer_widths=ml_options["HIDDEN_LAYER_WIDTHS"],
+                dtype=ml_options["TRAIN"]["dtype"],
+                device=ml_options["TRAIN"]["device"],
             )
-            / ml_options["PREDICTED_DOS"]["interval"]
-        )
-    )
-    x_dos = (
-        ml_options["PREDICTED_DOS"]["min_energy"]
-        + torch.arange(n_grid_points) * ml_options["PREDICTED_DOS"]["interval"]
-    )
-    # Define spline window
-    n_spline_points = int(
-        torch.ceil(
-            torch.tensor(
-                ml_options["DOS_SPLINES"]["max_energy"]
-                - ml_options["DOS_SPLINES"]["min_energy"]
+
+        else:  # Use pre-trained model
+            io.log(
+                log_path,
+                f"Using pre-trained model from path {ml_options['PRETRAINED_MODEL']}",
             )
-            / ml_options["DOS_SPLINES"]["interval"]
+            model = torch.load(ml_options["PRETRAINED_MODEL"])
+
+        # Load the Fermi levels
+        if model._energy_reference == "Fermi":
+            energy_reference = [
+                parser.parse_fermi_energy(dft_options["SCF_DIR"](A)) for A in frame_idxs
+            ]
+        else:
+            assert ml_options["TARGET_DOS"]["reference"] == "Hartree"
+            energy_reference = [0.0] * len(frame_idxs)
+
+        # Define the learnable alignment that is used for the adaptive energy reference
+        alignment = torch.nn.Parameter(
+            torch.tensor(
+                energy_reference,
+                dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
+                device=ml_options["TRAIN"]["device"],
+            )
         )
-    )
-    spline_positions = (
-        ml_options["DOS_SPLINES"]["min_energy"]
-        + torch.arange(n_grid_points) * ml_options["DOS_SPLINES"]["interval"]
-    )
 
-    # Get atom types
-    atom_types = set()
-    for frame in frames:
-        for type_ in system.get_types(frame):
-            atom_types.update({type_})
-    atom_types = list(atom_types)
-
-    # Define out properties
-    out_properties = [
-        mts.Labels(
-            ["point"], torch.arange(n_grid_points, dtype=torch.int64).reshape(-1, 1)
+        # Initialize optimizer and scheduler
+        io.log(log_path, "Initializing optimizer")
+        optimizer = torch.optim.Adam(
+            list(model.parameters()) + [alignment],
+            lr=ml_options["OPTIMIZER_ARGS"]["lr"],
         )
-        for _ in atom_types
-    ]
 
-    # Initialize model
-    io.log(log_path, "Initializing model")
-    model = SoapDosNet(
-        ml_options["SPHERICAL_EXPANSION_HYPERS"],
-        atom_types=atom_types,
-        out_properties=out_properties,
-        hidden_layer_widths=ml_options["HIDDEN_LAYER_WIDTHS"],
-        dtype=ml_options["TRAIN"]["dtype"],
-        device=ml_options["TRAIN"]["device"],
-    )
+        # Initialize scheduler
+        io.log(log_path, "Initializing scheduler")
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            factor=ml_options["SCHEDULER_ARGS"]["gamma"],
+            patience=ml_options["SCHEDULER_ARGS"]["patience"],
+            threshold=ml_options["SCHEDULER_ARGS"]["threshold"],
+            min_lr=ml_options["SCHEDULER_ARGS"]["min_lr"],
+        )
+
+        # Initialize the best validation loss
+        best_val_loss = torch.tensor(float("inf"))
+
+        
+    # Load model, optimizer, scheduler from checkpoint for restarting training
+    else:
+
+        epochs = torch.arange(
+            ml_options["TRAIN"]["restart_epoch"] + 1,
+            ml_options["TRAIN"]["restart_epoch"] + ml_options["TRAIN"]["n_epochs"] + 1,
+        )
+
+        # Load model
+        io.log(log_path, "Loading model from checkpoint")
+        model = torch.load(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "model.pt",
+            )
+        )
+
+        # Load optimizer
+        io.log(log_path, "Loading optimizer from checkpoint")
+        optimizer = torch.load(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "optimizer.pt",
+            )
+        )
+
+        # Load scheduler
+        io.log(log_path, "Loading scheduler from checkpoint")
+        scheduler = torch.load(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "scheduler.pt",
+            )
+        )
+
+        # Load the validation loss
+        best_val_loss = torch.load(
+            join(
+                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                    "val_loss.pt",
+                )
+        )
+
+        # Load alignment
+        alignment = torch.load(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "alignment.pt",
+            )
+        )
 
     # Try a model save/load
     torch.save(model, join(ml_options["ML_DIR"], "model.pt"))
@@ -104,61 +195,11 @@ def train():
     os.remove(join(ml_options["ML_DIR"], "model.pt"))
     io.log(log_path, str(model).replace("\n", f"\n# {utils.timestamp()}"))
 
-    # Compute descriptor
-    io.log(log_path, "Computing SOAP power spectrum descriptors")
-    descriptor = model.compute_descriptor(frames).to(
-        dtype=ml_options["TRAIN"]["dtype"], device=ml_options["TRAIN"]["device"]
-    )
-    descriptor = [
-        mts.slice(
-            descriptor,
-            "samples",
-            mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
-        )
-        for A in frame_idxs
-    ]
-
-    # Check if splines have been computed
-    splines_precomputed = os.path.exists(join(ml_options["ML_DIR"], "splines.pt"))
-    if splines_precomputed:
-        splines = torch.load(join(ml_options["ML_DIR"], "splines.pt"))
-    else:
-        # Parse eigenvalues
-        io.log(log_path, "Parsing raw eigenvalues from FHI-aims output directories")
-        eigvals = [
-            parser.parse_eigenvalues(ml_options["SCF_DIR"](A)) for A in frame_idxs
-        ]
-        eigvals = [i for i in eigvals]
-        # Set Energy Reference
-        if ml_options["PREDICTED_DOS"]["reference"] == "Fermi":
-            energy_reference = [
-                parser.parse_fermi_energy(ml_options["SCF_DIR"](A)) for A in frame_idxs
-            ]
-        elif ml_options["PREDICTED_DOS"]["reference"] == "Hartree":
-            energy_reference = [0.0] * len(eigvals)
-
-        # Compute splines
-        io.log(log_path, "Computing splines of target eigenenergies")
-        splines = [
-            train_utils.spline_eigenenergies(
-                frame,
-                frame_idx,
-                energies,
-                reference,
-                sigma=ml_options["PREDICTED_DOS"]["sigma"],
-                min_energy=ml_options["DOS_SPLINES"]["min_energy"],
-                max_energy=ml_options["DOS_SPLINES"]["max_energy"],
-                interval=ml_options["DOS_SPLINES"]["interval"],
-            )
-            for frame, frame_idx, energies, reference in zip(
-                frames, frame_idxs, eigvals, energy_reference
-            )
-        ]
-        torch.save(splines, join(ml_options["ML_DIR"], "splines.pt"))
+    # ===== Create datasets and dataloaders =====
 
     # First define subsets of system IDs for crossval
     io.log(log_path, "Split system IDs into subsets")
-    all_subset_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
+    all_subset_id = crossval_idx_split(  # cross-validation split of idxs
         frame_idxs=frame_idxs,
         n_train=ml_options["N_TRAIN"],
         n_val=ml_options["N_VAL"],
@@ -174,242 +215,165 @@ def train():
         },
     )
 
-    # Build datasets
-    train_dset = IndexedDataset(
-        sample_id=all_subset_id[0],
-        frames=[frames[i] for i in all_subset_id[0]],
-        descriptor=[descriptor[i] for i in all_subset_id[0]],
-        splines=[splines[i] for i in all_subset_id[0]],
-    )
-    val_dset = IndexedDataset(
-        sample_id=all_subset_id[1],
-        frames=[frames[i] for i in all_subset_id[1]],
-        descriptor=[descriptor[i] for i in all_subset_id[1]],
-        splines=[splines[i] for i in all_subset_id[1]],
+    # Train dataset
+    io.log(log_path, f"Training system ID: {all_subset_id[0]}")
+    io.log(log_path, "Build training dataset")
+    train_dset = train_utils.get_dataset(
+        frames=[all_frames[A] for A in all_subset_id[0]],
+        frame_idxs=list(all_subset_id[0]),
+        model=model,
+        load_dir=dft_options["PROCESSED_DIR"],
+        precomputed_descriptors=ml_options["PRECOMPUTED_DESCRIPTORS"],
+        dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
+        device=torch.device(ml_options["TRAIN"]["device"]),
     )
 
-    # Build dataloaders
+    # Build train dataloader
+    io.log(log_path, "Build training dataloader")
+    join_kwargs = {"remove_tensor_name": True, "different_keys": "union"}
     train_loader = DataLoader(
         train_dset,
         batch_size=ml_options["TRAIN"]["batch_size"],
-        shuffle=True,
-        collate_fn=partial(group_and_join, join_kwargs={"remove_tensor_name": True}),
+        shuffle=False,
+        collate_fn=partial(group_and_join, join_kwargs=join_kwargs),
     )
+
+    # Val dataset
+    io.log(log_path, f"Validation system ID: {all_subset_id[1]}")
+    io.log(log_path, "Build validation dataset")
+    val_dset = train_utils.get_dataset(
+        frames=[all_frames[A] for A in all_subset_id[1]],
+        frame_idxs=list(all_subset_id[1]),
+        model=model,
+        load_dir=dft_options["PROCESSED_DIR"],
+        precomputed_descriptors=ml_options["PRECOMPUTED_DESCRIPTORS"],
+        dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
+        device=torch.device(ml_options["TRAIN"]["device"]),
+    )
+
+    # Build val dataloader
+    io.log(log_path, "Build validation dataloader")
+    if ml_options["TRAIN"]["val_batch_size"] is None:
+        val_batch_size = len(all_subset_id[1])
+    else:
+        val_batch_size = ml_options["TRAIN"]["val_batch_size"]
     val_loader = DataLoader(
         val_dset,
-        batch_size=ml_options["TRAIN"]["val_batch_size"],
+        batch_size=val_batch_size,
         shuffle=False,
-        collate_fn=partial(group_and_join, join_kwargs={"remove_tensor_name": True}),
+        collate_fn=partial(group_and_join, join_kwargs=join_kwargs),
     )
 
-    # Define the learnable alignment that is used for the adaptive energy reference
-    alignment = torch.nn.Parameter(
-        torch.zeros(
-            len(train_dset),
-            dtype=ml_options["TRAIN"]["dtype"],
-            device=ml_options["TRAIN"]["device"],
-        )
+    # Get the spline positions
+    spline_positions = train_utils.get_spline_positions(
+        min_energy=dft_options["DOS_SPLINES"]["min_energy"],
+        max_energy=dft_options["DOS_SPLINES"]["max_energy"] - ml_options["TARGET_DOS"]["max_energy_buffer"],
+        interval=dft_options["DOS_SPLINES"]["interval"],
     )
 
-    if ml_options["TRAIN"]["restart_epoch"] is None:
-        # Initialize necessary variables, optimizer and scheduler
-        io.log(log_path, "Initializing Training Variables")
-        epochs = torch.arange(1, ml_options["TRAIN"]["n_epochs"] + 1)
-        best_state = copy.deepcopy(model.state_dict())
-        best_alignment = copy.deepcopy(alignment.detach())
-        best_train_loss = torch.tensor(100.0)
-        best_val_loss = torch.tensor(100.0)
-        optimizer = torch.optim.Adam(
-            list(model.parameters()) + [alignment],
-            lr=ml_options["OPTIMIZER_ARGS"]["lr"],
-        )
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            factor=ml_options["SCHEDULER_ARGS"]["gamma"],
-            patience=ml_options["SCHEDULER_ARGS"]["patience"],
-            threshold=ml_options["SCHEDULER_ARGS"]["threshold"],
-            min_lr=ml_options["SCHEDULER_ARGS"]["min_lr"],
-        )
-    else:
-        io.log(
-            log_path,
-            f"Loading Training Variables and Model from Epoch: {ml_options['TRAIN']['restart_epoch']}",
-        )
-        epochs = torch.arange(
-            ml_options["TRAIN"]["restart_epoch"] + 1,
-            ml_options["TRAIN"]["restart_epoch"] + ml_options["TRAIN"]["n_epochs"] + 1,
-        )
-        # Load model
-        io.log(log_path, "Loading model from checkpoint")
-        model = torch.load(
-            join(
-                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "model.pt",
-            )
-        )
-        # Load best model state dict
-        io.log(log_path, "Loading best state from checkpoint")
-        model = torch.load(
-            join(
-                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "best_model_state.pt",
-            )
-        )
-        # Load alignment
-        io.log(log_path, "Loading alignment from checkpoint")
-        alignment = torch.load(
-            join(
-                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "alignment.pt",
-            )
-        )
-        io.log(log_path, "Loading best alignment from checkpoint")
-        best_alignment = torch.load(
-            join(
-                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "best_alignment.pt",
-            )
-        )
-        # Load optimizer
-        io.log(log_path, "Loading Optimizer from checkpoint")
-        optimizer = torch.optim.Adam(
-            list(model.parameters()) + [alignment],
-            lr=ml_options["OPTIMIZER_ARGS"]["lr"],
-        )
-        optimizer.load_state_dict(
-            torch.load(
-                join(
-                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                    "optimizer_state_dict.pt",
-                )
-            )
-        )
-        # Load Scheduler
-        io.log(log_path, "Loading Scheduler from checkpoint")
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            factor=ml_options["SCHEDULER_ARGS"]["gamma"],
-            patience=ml_options["SCHEDULER_ARGS"]["patience"],
-            threshold=ml_options["SCHEDULER_ARGS"]["threshold"],
-            min_lr=ml_options["SCHEDULER_ARGS"]["min_lr"],
-        )
-        scheduler.load_state_dict(
-            torch.load(
-                join(
-                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                    "scheduler_state_dict.pt",
-                )
-            )
-        )
-        # Load best training performances
-        io.log(log_path, "Loading Best Training Performance from checkpoint")
-        best_train_loss, best_val_loss = torch.load(
-            join(
-                ml_options["CHKPT_DIR"](
-                    ml_options["TRAIN"]["restart_epoch"], "parameters.pt"
-                )
-            )
-        )
-
+    # Finish setup
     dt_setup = time.time() - t0_setup
-    io.log(log_path, train_utils.report_dt(dt_setup, "Setup complete"))
+    io.log(log_path, report_dt(dt_setup, "Setup complete"))
 
-    # Start training loop
+
+    # ===== Training loop =====
+
+    io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1]}")
+
+    t0_training = time.time()
     for epoch in epochs:
 
         # Training step
-        epoch_train_loss = 0
+        train_loss = 0
         for batch in train_loader:
 
             optimizer.zero_grad()
+
             # Compute prediction
             prediction = model(frames=batch.frames, descriptor=batch.descriptor)
-            prediction = prediction.keys_to_samples(["center_type"])
             prediction = mts.mean_over_samples(prediction, "atom")
             prediction = prediction[0].values
 
-            # Align the targets
-            ## Enforce that alignment has a mean of 0 to eliminate systematic shifts across the entire dataset
+            # Align the targets. Enforce that alignment has a mean of 0 to eliminate
+            # systematic shifts across the entire dataset
             normalized_alignment = alignment - torch.mean(alignment)
             target = train_utils.evaluate_spline(
                 batch.splines[0].values,
-                x_dos,
-                spline_positions
-                + normalized_alignment[list(batch.sample_id)].view(-1, 1),
+                spline_positions,
+                model._x_dos + normalized_alignment[list(batch.sample_id)].view(-1, 1),
             )
 
             # Compute loss
-            batch_loss = train_utils.t_get_mse(prediction, target, x_dos)
+            batch_loss = train_utils.t_get_mse(prediction, target, model._x_dos)
             batch_loss *= len(list(batch.sample_id)) / ml_options["N_TRAIN"]
 
+            # Update parameters
             batch_loss.backward()
             optimizer.step()
 
-            epoch_train_loss += batch_loss.item()
-        if epoch_train_loss < best_train_loss:
-            best_train_loss = epoch_train_loss
+            train_loss += batch_loss.item()
 
         # Validation step
+        val_loss = torch.nan
         if epoch % ml_options["TRAIN"]["val_interval"] == 0:
-            # Performs validation step
             val_predictions = []
+            val_splines = []
             for batch in val_loader:
                 prediction = model(frames=batch.frames, descriptor=batch.descriptor)
-                prediction = prediction.keys_to_samples(["center_type"])
                 prediction = mts.mean_over_samples(prediction, "atom")
                 prediction = prediction[0].values
                 val_predictions.append(prediction)
+                val_splines.append(batch.splines[0].values)
 
-            epoch_val_loss, _ = train_utils.Opt_MSE_spline(
+            val_loss, _ = train_utils.opt_mse_spline(
                 torch.vstack(val_predictions),
-                x_dos,
-                torch.vstack(val_dset.splines),
+                model._x_dos,
+                torch.vstack(val_splines),
                 spline_positions,
                 n_epochs=50,
             )
-            if epoch_val_loss < best_val_loss:
-                best_val_loss = epoch_val_loss
-                best_state = copy.deepcopy(model.state_dict())
-                best_alignment = alignment.detach()
+            scheduler.step(val_loss)
 
-        scheduler.step(epoch_val_loss)
-        if epoch % ml_options["TRAIN"]["log_interval"] == 0:
-            # Logs the current and best losses
-            io.log(
-                log_path,
-                (
-                    f"Epoch {epoch}: Current loss (Train, Val): {epoch_train_loss.item():.4}, {epoch_val_loss.item():.4}"
-                    f", Best loss (Train, Val): {best_train_loss.item():.4}, {best_val_loss.item():.4}"
-                ),
+        lr = scheduler._last_lr[0]
+
+        # Log results on this epoch
+        if epoch % ml_options["TRAIN"]["log_interval"] == 0 or epoch == 1:
+            log_msg = (
+                f"epoch {epoch}"
+                f" train_loss {train_loss}"
+                f" val_loss {val_loss}"
+                f" lr {lr}"
             )
+            io.log(log_path, log_msg)
 
+        # Checkpoint on this epoch, including alignment
         if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0:
-            # Save relevant parameters
-            train_utils.save_checkpoint(
+            save_checkpoint(
                 model,
-                best_state,
-                alignment,
-                best_alignment,
-                [best_train_loss, best_val_loss],
                 optimizer,
                 scheduler,
+                best_val_loss,
                 chkpt_dir=ml_options["CHKPT_DIR"](epoch),
             )
+            torch.save(alignment, join(ml_options["CHKPT_DIR"](epoch), "alignment.pt"))
 
-        if scheduler.get_last_lr() <= ml_options["SCHEDULER_ARGS"]["min_lr"]:
+        # Save checkpoint if best validation loss
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            save_checkpoint(
+                model, optimizer, scheduler, val_loss, chkpt_dir=ml_options["CHKPT_DIR"]("best")
+            )
+            torch.save(alignment, join(ml_options["CHKPT_DIR"]("best"), "alignment.pt"))
+
+        # Early stopping
+        if lr <= ml_options["SCHEDULER_ARGS"]["min_lr"]:
+            io.log(log_path, "Early stopping")
             break
 
-    # After training ends
-    train_utils.save_checkpoint(
-        model,
-        best_state,
-        alignment,
-        best_alignment,
-        [best_train_loss, best_val_loss],
-        optimizer,
-        scheduler,
-        chkpt_dir=ml_options["CHKPT_DIR"](epoch),
-    )
+    # Finish
+    dt_train = time.time() - t0_training
+    io.log(log_path, report_dt(dt_train, "Training complete"))
+    io.log(log_path, f"Best validation loss: {best_val_loss:.5f}")
 
 
 def _get_options():
@@ -425,7 +389,31 @@ def _get_options():
     dft_options["SCF_DIR"] = lambda frame_idx: join(
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
+    dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
+    )
     ml_options["ML_DIR"] = os.getcwd()
-    ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")
+    ml_options["CHKPT_DIR"] = create_subdir(os.getcwd(), "checkpoint")
 
     return dft_options, ml_options
+
+
+def _check_input_settings(dft_options: dict, ml_options: dict, frame_idxs: List[int]):
+    """
+    Checks input settings for validity. Assumes they have already been set
+    globally, i.e. by :py:fun:`set_settings_globally`.
+    """
+    if not os.path.exists(dft_options["XYZ"]):
+        raise FileNotFoundError(f"XYZ file not found at path: {dft_options['XYZ']}")
+    if ml_options["N_TRAIN"] <= 0:
+        raise ValueError("must have size non-zero training set")
+    if ml_options["N_VAL"] <= 0:
+        raise ValueError("must have size non-zero validation set")
+    if (
+        len(frame_idxs)
+        < ml_options["N_TRAIN"] + ml_options["N_VAL"] + ml_options["N_TEST"]
+    ):
+        raise ValueError(
+            "the sum of sizes of training, validation, and test"
+            " sets must be <= the number of frames"
+        )

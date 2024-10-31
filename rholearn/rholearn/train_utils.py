@@ -309,7 +309,7 @@ def epoch_step(
     return loss_epoch / n_samples_epoch
 
 
-def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, chkpt_dir: str):
+def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, val_loss: torch.Tensor, chkpt_dir: str):
     """
     Saves model object, model state dict, optimizer state dict, scheduler state dict,
     to file.
@@ -322,6 +322,7 @@ def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, chkpt_dir: str
         model.state_dict(),
         join(chkpt_dir, "model_state_dict.pt"),
     )
+
     # Optimizer and scheduler
     torch.save(optimizer.state_dict(), join(chkpt_dir, "optimizer_state_dict.pt"))
     if scheduler is not None:
@@ -329,6 +330,9 @@ def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, chkpt_dir: str
             scheduler.state_dict(),
             join(chkpt_dir, "scheduler_state_dict.pt"),
         )
+
+    # Save the validation loss
+    torch.save(val_loss, join(chkpt_dir, "val_loss.pt"))
 
 
 def report_dt(dt: float, message: str):
@@ -355,7 +359,6 @@ def crossval_idx_split(
     frame_idxs: List[int], n_train: int, n_val: int, n_test: int, seed: int = 42
 ) -> Tuple[np.ndarray]:
     """Shuffles and splits ``frame_idxs``."""
-    # Shuffle idxs using the standard seed (42)
     frame_idxs_ = frame_idxs.copy()
     np.random.default_rng(seed=seed).shuffle(frame_idxs_)
 

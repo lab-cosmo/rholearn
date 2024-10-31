@@ -6,7 +6,7 @@ import os
 import shutil
 from os.path import exists, join
 
-from rholearn.aims_interface import hpc, io
+from rholearn.aims_interface import hpc, io, parser
 from rholearn.options import get_options
 from rholearn.utils import system
 
@@ -18,10 +18,6 @@ def run_scf() -> None:
 
     # Get the DFT and HPC options
     dft_options, hpc_options = _get_options()
-
-    # Add keyword if using doslearn
-    if dft_options.get("DOS") is True:
-        dft_options["SCF"].update({"output": "postscf_eigenvalues"})
 
     # Get the frames and indices
     if dft_options.get("IDX_SUBSET") is not None:
@@ -43,7 +39,7 @@ def run_scf() -> None:
 
         # Get control parameters
         control_params = io.get_control_parameters_for_frame(
-            frame, dft_options["BASE_AIMS"], dft_options["SCF"], dft_options["CUBE"]
+            frame, dft_options["BASE_AIMS"], dft_options["SCF"], dft_options.get("CUBE")
         )
 
         # Write input files
@@ -85,19 +81,35 @@ def process_scf() -> None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
         frame_idxs = list(
-            range(len(system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)))
+            range(len(system.read_frames_from_xyz(dft_options["XYZ"])))
         )
 
     python_command = (
-        "python3 -c"
-        "'from rholearn.aims_interface import parser;"
-        " from rholearn.utils.io import pickle_dict;"
-        ' calc_info = parser.parse_aims_out(aims_output_dir=".");'
+        'from rholearn.aims_interface import parser;'
+        ' from rholearn.utils.io import pickle_dict;'
+        " calc_info = parser.parse_aims_out(aims_output_dir='.');"
         ' pickle_dict("calc_info.pickle", calc_info);'
-        "'"
     )
 
-    # Process the RI fit output for each frame
+    if dft_options.get("DOS_SPLINES") is not None:
+        python_command += (
+            " import os.path;"
+            " import metatensor.torch as mts;"
+            " splines = parser.spline_eigenenergies("
+            "aims_output_dir='.',"
+            "frame_idx='${ARRAY_IDX}',"
+            f"sigma={dft_options['DOS_SPLINES']['sigma']},"
+            f"min_energy={dft_options['DOS_SPLINES']['min_energy']},"
+            f"max_energy={dft_options['DOS_SPLINES']['max_energy']},"
+            f"interval={dft_options['DOS_SPLINES']['interval']}"
+            ");"
+            f" os.makedirs('{dft_options['PROCESSED_DIR']('${ARRAY_IDX}')}');"
+            # f" mts.save(os.path.join(\'{dft_options['PROCESSED_DIR']('${ARRAY_IDX}')}\', 'splines.npz'), splines);"
+            # f'mts.save("splines.npz", splines);'
+        )
+    python_command = 'python3 -c "' + python_command + '"'
+
+    # Process the SCF outputs for each frame
     fname = f"run-process-scf-{hpc.timestamp()}.sh"
     hpc.write_python_sbatch_array(
         fname=fname,
@@ -108,13 +120,45 @@ def process_scf() -> None:
     )
     hpc.run_script(".", "sbatch " + fname)
 
+    if dft_options.get("DOS_SPLINES") is not None:
+        spline_eigenvalues()
+
+def spline_eigenvalues() -> None:
+    """
+    Parses the files "Final_KS_eigenvalues.dat" and splines them. Saves the resulting
+    TensorMap objects to the processed data directory.
+    """
+
+    #Set the DFT settings globally
+    dft_options, hpc_options = _get_options()
+
+    # Get the frame indices
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(
+            range(len(system.read_frames_from_xyz(dft_options["XYZ"])))
+        )
+
+    for A in frame_idxs:
+        parser.spline_eigenenergies(
+            aims_output_dir=dft_options["SCF_DIR"](A),
+            frame_idx=A,
+            sigma=dft_options["DOS_SPLINES"]["sigma"],
+            min_energy=dft_options["DOS_SPLINES"]["min_energy"],
+            max_energy=dft_options["DOS_SPLINES"]["max_energy"],
+            interval=dft_options["DOS_SPLINES"]["interval"],
+            save_dir=dft_options["PROCESSED_DIR"](A),
+        )
+
+
 
 def _get_options() -> None:
     """
     Gets the DFT and HPC options. Ensures the defaults are set first and then
     overwritten with user settings.
     """
-    dft_options = get_options("dft")
+    dft_options = get_options("dft", "doslearn")
     hpc_options = get_options("hpc")
 
     # Set some extra directories
@@ -122,10 +166,10 @@ def _get_options() -> None:
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
     dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
     )
     dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
     )
 
     return dft_options, hpc_options

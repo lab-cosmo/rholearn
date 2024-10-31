@@ -20,9 +20,16 @@ def eval():
     t0_eval = time.time()
     dft_options, hpc_options, ml_options = _get_options()
 
-    # Read frames and frame indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = list(range(len(frames)))
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = None
+    # Load all the frames 
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
+    
+    if frame_idxs is None:
+        frame_idxs = list(range(len(all_frames)))
 
     # ===== Setup =====
     os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
@@ -49,7 +56,6 @@ def eval():
         n_test=ml_options["N_TEST"],
         seed=ml_options["SEED"],
     )
-    all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
     test_frames = [all_frames[A] for A in test_id]
 
     # TODO: complete
