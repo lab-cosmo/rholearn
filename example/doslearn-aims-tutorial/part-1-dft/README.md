@@ -10,6 +10,9 @@ After modifying the user options in `dft-options.yaml` and `hpc-options.yaml`, t
 
 # Run SCF
 rholearn_run_scf
+
+# Process outputs
+rholearn_process_scf
 ```
 
 ## 1.1: Specify DFT and HPC options
@@ -57,7 +60,12 @@ raw/                                # Raw data directory
 
 The calculation has (hopefully) converged to the SCF solution for the given input options.
 
-Now process the SCF outputs - this essentially just parses `aims.out` to extracts various information and pickles it to file `calc_info.pickle`.
+Now process the SCF outputs. First, the `aims.out` file is parsed to extract various information and pickle it to file "calc_info.pickle" in the `FHI-aims` run directory.
+
+Next, the eigenvalues contained in "Final_KS_eigenvalues.dat" are parsed and splines constructed for them. These splines are constructed according to the splines settings `DOS_SPLINES` specified in [dft-options.yaml](dft-options.yaml). These splines are stored in `TensorMap` format and saved to a series of processed data directories at path (i.e. for structure index 0) `data/processed/0/dos/dos_spline.npz`. 
+
+Splines generated with different parameters can be saved to different processed data directories by changing the default option for `RUN_DIR` in [dft-options.yaml](dft-options.yaml). 
+
 ```python
 from rholearn.aims_interface import scf
 

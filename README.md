@@ -34,7 +34,7 @@ where $\rho^{\text{RI}}(\mathbf{r})$ the basis set approximation to it, $\varphi
 
 An equivariant model is then trained to predict coefficients $d_b^{\text{ML}}$ that reconstruct a density in real-space, ideally minimising the generalisation error on the real-space DFT densities of a test set.
 
-For one of the original workflows for predicting the electron density under the density-fitting frameworl, readers are referred to [*SALTED*](https://github.com/andreagrisafi/SALTED). This uses a symmetry-adapted Gaussian process regression (SA-GPR) method via sparse kernel ridge regression to learn and predict $d_b^{\text{ML}}$.
+For one of the original workflows for predicting the electron density under the density-fitting framework, readers are referred to [*SALTED*](https://github.com/andreagrisafi/SALTED). This uses a symmetry-adapted Gaussian process regression (SA-GPR) method via sparse kernel ridge regression to learn and predict $d_b^{\text{ML}}$.
 
 # Goals
 
@@ -82,13 +82,16 @@ In a run directory, user-options are defined in YAML files named ["dft-options.y
 
 Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](example/options) directory.
 
-Then, data can be generated with the following CLI commands:
+Data can be generated with the following CLI commands. For converging SCF and processing outputs for both `rholearn` and `doslearn`:
 
 ```bash
 rholearn_run_scf  # run SCF with FHI-aims
 
 rholearn_process_scf  # process SCF outputs
+```
 
+For generating RI decomposition data, for `rholearn` only:
+```bash
 rholearn_setup_ri_fit  # setup RI fitting calculation
 
 rholearn_run_ri_fit  # run RI fitting with FHI-aims
