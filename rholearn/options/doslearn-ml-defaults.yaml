@@ -38,6 +38,9 @@ TRAIN:
   log_interval: 100  # epoch interval at which to log metrics
   checkpoint_interval: 100  # save model and optimizer state every x intervals
 
+EVAL:
+  eval_epoch: best
+
 # Args for Adam optimizer
 OPTIMIZER_ARGS:
   lr: 0.001

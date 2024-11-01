@@ -4,7 +4,7 @@ from os.path import join
 
 import torch
 
-from rholearn.doslearn import train_utils
+from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.options import get_options
 from rholearn.utils import io, system
 
@@ -18,7 +18,7 @@ def eval():
         4. Evaluate MAE against reference fields
     """
     t0_eval = time.time()
-    dft_options, _, ml_options = _get_options()
+    dft_options, ml_options = _get_options()
 
     # Get frame indices we have data for (or a subset if specified)
     if dft_options.get("IDX_SUBSET") is not None:
@@ -44,7 +44,7 @@ def eval():
     # ===== Get the test data =====
 
     io.log(log_path, "Get the test IDs and frames")
-    _, _, test_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
+    _, _, test_id = rho_train_utils.crossval_idx_split(  # cross-validation split of idxs
         frame_idxs=frame_idxs,
         n_train=ml_options["N_TRAIN"],
         n_val=ml_options["N_VAL"],
@@ -69,9 +69,9 @@ def eval():
     test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)  # noqa: F841
     dt_infer = time.time() - t0_infer
     io.log(
-        log_path, train_utils.report_dt(dt_infer, "Model inference (on basis) complete")
+        log_path, rho_train_utils.report_dt(dt_infer, "Model inference complete")
     )
-    io.log(log_path, train_utils.report_dt(dt_infer / len(test_id), "   or per frame"))
+    io.log(log_path, rho_train_utils.report_dt(dt_infer / len(test_id), "   or per frame"))
 
     # TODO: evaluate some metrics, and save predictions?
     # ...
@@ -82,7 +82,7 @@ def eval():
 
     # ===== Finish =====
     dt_eval = time.time() - t0_eval
-    io.log(log_path, train_utils.report_dt(dt_eval, "Evaluation complete (total time)"))
+    io.log(log_path, rho_train_utils.report_dt(dt_eval, "Evaluation complete (total time)"))
 
 
 def _get_options():
@@ -99,7 +99,7 @@ def _get_options():
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
     ml_options["ML_DIR"] = os.getcwd()
-    ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")
-    ml_options["EVAL_DIR"] = train_utils.create_subdir(os.getcwd(), "evaluation")
+    ml_options["CHKPT_DIR"] = rho_train_utils.create_subdir(os.getcwd(), "checkpoint")
+    ml_options["EVAL_DIR"] = rho_train_utils.create_subdir(os.getcwd(), "evaluation")
 
     return dft_options, ml_options

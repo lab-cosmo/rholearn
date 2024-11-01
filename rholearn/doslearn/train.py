@@ -81,7 +81,7 @@ def train():
                 interval=dft_options["DOS_SPLINES"]["interval"],
                 energy_reference=ml_options["TARGET_DOS"]["reference"],
                 hidden_layer_widths=ml_options["HIDDEN_LAYER_WIDTHS"],
-                dtype=ml_options["TRAIN"]["dtype"],
+                dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=ml_options["TRAIN"]["device"],
             )
 
