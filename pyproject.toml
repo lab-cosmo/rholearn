@@ -20,7 +20,7 @@ dependencies = [
     "chemfiles",
     "chemiscope",
     "metatensor[torch]",
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@0311925f9aba803a0744a48d448567a9b65316e1#subdirectory=python/rascaline-torch",
+    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e61147a6e348b29c77fd0a14aefef34815#subdirectory=python/rascaline-torch",
     "vesin",
 
     # Extra dependencies
@@ -47,13 +47,15 @@ packages = [
 package-data = {"rholearn" = ["rholearn/options/*.yaml"]}
 
 [project.scripts]
-rholearn_run_scf = "rholearn.aims_interface.scf:run_scf"
-rholearn_process_scf = "rholearn.aims_interface.scf:process_scf"
+rholearn_run_scf = "rholearn.aims_interface.scf:rholearn_run_scf"
+rholearn_process_scf = "rholearn.aims_interface.scf:rholearn_process_scf"
 rholearn_setup_ri_fit = "rholearn.aims_interface.ri_fit:setup_ri_fit"
 rholearn_run_ri_fit = "rholearn.aims_interface.ri_fit:run_ri_fit"
 rholearn_process_ri_fit = "rholearn.aims_interface.ri_fit:process_ri_fit"
 rholearn_run_ri_rebuild = "rholearn.aims_interface.ri_rebuild:run_ri_rebuild"
 rholearn_train = "rholearn.rholearn.train:train"
 rholearn_eval = "rholearn.rholearn.eval:eval"
+doslearn_run_scf = "rholearn.aims_interface.scf:doslearn_run_scf"
+doslearn_process_scf = "rholearn.aims_interface.scf:doslearn_process_scf"
 doslearn_train = "rholearn.doslearn.train:train"
 doslearn_eval = "rholearn.doslearn.eval:eval"

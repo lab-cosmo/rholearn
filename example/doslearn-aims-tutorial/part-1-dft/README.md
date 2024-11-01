@@ -9,10 +9,10 @@ After modifying the user options in `dft-options.yaml` and `hpc-options.yaml`, t
 # ...
 
 # Run SCF
-rholearn_run_scf
+doslearn_run_scf
 
 # Process outputs
-rholearn_process_scf
+doslearn_process_scf
 ```
 
 ## 1.1: Specify DFT and HPC options
@@ -37,9 +37,9 @@ Run the SCF procedure. This submits a parallel array of SCF calculations for eac
 ```python
 from rholearn.aims_interface import scf
 
-scf.run_scf()
+scf.doslearn_run_scf()
 ```
-Alternatively, from the command line: `rholearn_run_scf`
+Alternatively, from the command line: `doslearn_run_scf`
 
 After the calculation has finished, the run directory for each structure contains the following files:
 
@@ -69,7 +69,7 @@ Splines generated with different parameters can be saved to different processed 
 ```python
 from rholearn.aims_interface import scf
 
-scf.process_scf()
+scf.doslearn_process_scf()
 ```
 
 Alternatively, from the command line: `rholearn_process_scf`

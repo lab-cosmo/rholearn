@@ -248,7 +248,7 @@ def train():
 
     # ===== Training loop =====
 
-    io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1]}")
+    io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1] - 1} (inclusive)")
 
     t0_training = time.time()
     for epoch in epochs:
@@ -270,7 +270,7 @@ def train():
         dt_val_via_c = torch.nan
         # dt_val_via_w = torch.nan
         lr = torch.nan
-        if epoch % ml_options["TRAIN"]["val_interval"] == 0:
+        if epoch % ml_options["TRAIN"]["val_interval"] == 0 or epoch == 1:
             # a) using target_c only
             t0_val_via_c = time.time()
             val_loss_via_c = train_utils.epoch_step(
@@ -304,7 +304,7 @@ def train():
                 lr = scheduler._last_lr[0]
 
         # Log results on this epoch
-        if epoch % ml_options["TRAIN"]["log_interval"] == 0:
+        if epoch % ml_options["TRAIN"]["log_interval"] == 0 or epoch == 1:
             log_msg = (
                 f"epoch {epoch}"
                 f" train_loss {train_loss}"
@@ -320,18 +320,19 @@ def train():
         # Checkpoint on this epoch
         if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0 and epoch != 0:
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, chkpt_dir=ml_options["CHKPT_DIR"](epoch)
+                model, optimizer, scheduler, val_loss=val_loss_via_c, chkpt_dir=ml_options["CHKPT_DIR"](epoch)
             )
 
         # Save checkpoint if best validation loss
         if val_loss_via_c < best_val_loss:
             best_val_loss = val_loss_via_c
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, chkpt_dir=ml_options["CHKPT_DIR"]("best")
+                model, optimizer, scheduler, val_loss=val_loss_via_c, chkpt_dir=ml_options["CHKPT_DIR"]("best")
             )
 
-        # TODO: Early stopping!
-        # if scheduler.get_last_lr() <= ml_options["SCHEDULER_ARGS"]["min_lr"]:
+        # TODO: Early stopping with ReduceLROnPlateau ?
+        # if lr <= ml_options["SCHEDULER_ARGS"]["min_lr"]:
+        #     io.log(log_path, "Early stopping")
         #     break
 
     # Finish

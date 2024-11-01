@@ -201,9 +201,9 @@ def _get_options():
     with user settings.
     """
 
-    dft_options = get_options("dft")
+    dft_options = get_options("dft", "rholearn")
     hpc_options = get_options("hpc")
-    ml_options = get_options("ml")
+    ml_options = get_options("ml", "rholearn")
 
     # Set some extra directories
     dft_options["SCF_DIR"] = lambda frame_idx: join(

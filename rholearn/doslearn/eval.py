@@ -18,7 +18,7 @@ def eval():
         4. Evaluate MAE against reference fields
     """
     t0_eval = time.time()
-    dft_options, hpc_options, ml_options = _get_options()
+    dft_options, _, ml_options = _get_options()
 
     # Get frame indices we have data for (or a subset if specified)
     if dft_options.get("IDX_SUBSET") is not None:

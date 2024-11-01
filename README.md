@@ -55,7 +55,7 @@ Leveraging the speed- and memory-efficient operations of `torch`, and using buil
 
 With a working `conda` installation, first set up an environment:
 ```bash
-conda create -n rho python==3.11
+conda create -n rho python==3.12
 conda activate rho
 ```
 Then clone and install `rholearn`:
@@ -82,16 +82,15 @@ In a run directory, user-options are defined in YAML files named ["dft-options.y
 
 Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](example/options) directory.
 
-Data can be generated with the following CLI commands. For converging SCF and processing outputs for both `rholearn` and `doslearn`:
+#### `rholearn`
+
+Data can be generated with the following:
 
 ```bash
 rholearn_run_scf  # run SCF with FHI-aims
 
 rholearn_process_scf  # process SCF outputs
-```
 
-For generating RI decomposition data, for `rholearn` only:
-```bash
 rholearn_setup_ri_fit  # setup RI fitting calculation
 
 rholearn_run_ri_fit  # run RI fitting with FHI-aims
@@ -102,12 +101,26 @@ rholearn_process_ri_fit  # process RI outputs
 and model training and evaluation run with:
 
 ```bash
-# rholearn
 rholearn_train  # train model
-rholearn_eval  # evaluate model with rholearn
 
-# doslearn
+rholearn_eval  # evaluate model
+```
+
+#### `doslearn`
+
+Data can be generated with the following:
+
+```bash
+doslearn_run_scf  # run SCF with FHI-aims
+
+doslearn_process_scf  # process SCF outputs
+```
+
+and model training and evaluation run with:
+
+```bash
 doslearn_train  # train model
+
 doslearn_eval  # evaluate model
 ```
 

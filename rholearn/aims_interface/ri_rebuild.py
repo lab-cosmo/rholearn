@@ -177,7 +177,7 @@ def _get_options() -> None:
     Sets the settings globally. Ensures the defaults are set first and then
     overwritten with user settings.
     """
-    dft_options = get_options("dft")
+    dft_options = get_options("dft", "rholearn")
     hpc_options = get_options("hpc")
 
     # Set some extra directories

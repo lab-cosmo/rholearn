@@ -49,7 +49,7 @@ Run the SCF procedure. This submits a parallel array of SCF calculations for eac
 ```python
 from rholearn.aims_interface import scf
 
-scf.run_scf()
+scf.rholearn_run_scf()
 ```
 Alternatively, from the command line: `rholearn_run_scf`
 
@@ -77,7 +77,7 @@ Now process the SCF outputs - this essentially just parses `aims.out` to extract
 ```python
 from rholearn.aims_interface import scf
 
-scf.process_scf()
+scf.rholearn_process_scf()
 ```
 
 Alternatively, from the command line: `rholearn_process_scf`
@@ -128,7 +128,7 @@ raw/                                # Raw data directory
         ├── rho_scf.out             # Electron density from SCF calculation
         ├── ri_ovlp.out             # Overlap matrix for RI basis
         ├── ri_projections.out      # Electron density projections on RI basis
-        ├── ri_restart_ceoffs.out   # RI fitting coefficients
+        ├── ri_restart_coeffs.out   # RI fitting coefficients
         └── slurm_*.out             # Output file from SLURM job scheduler
     ├── aims.out                    # Previous outputs from SCF step
     ├── ...                         # ...
