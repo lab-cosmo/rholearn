@@ -1,4 +1,4 @@
-# Part 2: Train a surrogate model with `rholearn`
+# Part 2: Train a surrogate model for the electron density with `rholearn`
 
 
 ## 2.0: TLDR of requried commands

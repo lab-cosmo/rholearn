@@ -14,8 +14,8 @@ from chemfiles import Frame
 from metatensor.torch.learn.data import DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
-from rholearn import mask
-from rholearn.utils import convert
+from rholearn.rholearn import mask
+from rholearn.utils import _dispatch, convert, system
 
 
 def create_subdir(ml_dir: str, name: str):
@@ -309,7 +309,9 @@ def epoch_step(
     return loss_epoch / n_samples_epoch
 
 
-def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, chkpt_dir: str):
+def save_checkpoint(
+    model: torch.nn.Module, optimizer, scheduler, val_loss: torch.Tensor, chkpt_dir: str
+):
     """
     Saves model object, model state dict, optimizer state dict, scheduler state dict,
     to file.
@@ -322,6 +324,7 @@ def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, chkpt_dir: str
         model.state_dict(),
         join(chkpt_dir, "model_state_dict.pt"),
     )
+
     # Optimizer and scheduler
     torch.save(optimizer.state_dict(), join(chkpt_dir, "optimizer_state_dict.pt"))
     if scheduler is not None:
@@ -329,6 +332,9 @@ def save_checkpoint(model: torch.nn.Module, optimizer, scheduler, chkpt_dir: str
             scheduler.state_dict(),
             join(chkpt_dir, "scheduler_state_dict.pt"),
         )
+
+    # Save the validation loss
+    torch.save(val_loss, join(chkpt_dir, "val_loss.pt"))
 
 
 def report_dt(dt: float, message: str):
@@ -355,7 +361,6 @@ def crossval_idx_split(
     frame_idxs: List[int], n_train: int, n_val: int, n_test: int, seed: int = 42
 ) -> Tuple[np.ndarray]:
     """Shuffles and splits ``frame_idxs``."""
-    # Shuffle idxs using the standard seed (42)
     frame_idxs_ = frame_idxs.copy()
     np.random.default_rng(seed=seed).shuffle(frame_idxs_)
 
@@ -533,3 +538,89 @@ def _get_log_subset_sizes(
         dtype=int,
     )
     return subset_sizes
+
+
+def reindex_tensormap(
+    tensor: mts.TensorMap,
+    system_ids: List[int],
+) -> mts.TensorMap:
+    """
+    Takes a single TensorMap `tensor` containing data on multiple systems and re-indexes
+    the "system" dimension of the samples. Assumes input has numeric system indices from
+    {0, ..., N_system - 1} (inclusive), and maps these indices one-to-one with those
+    passed in ``system_ids``.
+    """
+    assert tensor.sample_names[0] == "system"
+
+    index_mapping = {i: A for i, A in enumerate(system_ids)}
+
+    def new_row(row):
+        return [index_mapping[row[0].item()]] + [i for i in row[1:]]
+
+    new_blocks = []
+    for block in tensor.blocks():
+        new_samples = mts.Labels(
+            names=block.samples.names,
+            values=torch.tensor(
+                [new_row(row) for row in block.samples.values],
+                dtype=torch.int32,
+            ),
+        )
+        new_block = mts.TensorBlock(
+            values=block.values,
+            samples=new_samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        new_blocks.append(new_block)
+
+    return mts.TensorMap(tensor.keys, new_blocks)
+
+
+def split_tensormap_by_system(
+    tensor: mts.TensorMap, system_ids: List[int]
+) -> List[mts.TensorMap]:
+    """
+    Splits a single TensorMap `tensor` into per-system TensorMaps along the samples
+    axis.
+    """
+    return [
+        mts.slice(
+            tensor,
+            "samples",
+            labels=mts.Labels(names="system", values=torch.tensor([A]).reshape(-1, 1)),
+        )
+        for A in system_ids
+    ]
+
+
+def drop_blocks_for_nonpresent_types(
+    frames: Union[Frame, List[Frame]], tensor: mts.TensorMap
+) -> mts.TensorMap:
+    """
+    Drops blocks from a TensorMap `tensor` that correspond to atom types not present in
+    the given ``frame``.
+    """
+    # Get the unique atom types in `frames`
+    if isinstance(frames, Frame):
+        frames = [frames]
+    atom_types = []
+    for frame in frames:
+        for _type in system.get_types(frame):
+            if _type not in atom_types:
+                atom_types.append(_type)
+
+    # Build the new keys and TensorMap
+    new_key_vals = []
+    for key in tensor.keys:
+        if key["center_type"] in atom_types:
+            new_key_vals.append(list(key.values))
+
+    new_keys = mts.Labels(
+        names=tensor.keys.names,
+        values=_dispatch.int_array(new_key_vals, "torch"),
+    )
+    return mts.TensorMap(
+        keys=new_keys,
+        blocks=[tensor[key] for key in new_keys],
+    )

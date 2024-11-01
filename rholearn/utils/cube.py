@@ -169,6 +169,94 @@ class RhoCube(cube_tools.cube):
 # ===== For generating contour plots from cube files
 
 
+def plot_contour_ccm(
+    cubes: List[RhoCube],
+    isovalue: float,
+    tolerance: float,
+    grid_multiplier: int,
+    levels: int,
+    z_min: float = None,
+    z_max: float = None,
+    xy_tiling: List[int] = None,
+    cmap: str = "viridis",
+):
+    """
+    Plots a contour plot of the height profile map of the cube file.
+    """
+    if isinstance(cubes, RhoCube):
+        cubes = [cubes]
+
+    fig, axes = plt.subplots(
+        len(cubes),
+        1,
+        figsize=(5 * len(cubes), 25),
+        sharey=True,
+        sharex=True,
+    )
+
+    for q, ax in zip(cubes, axes):
+        x, y, z = q.get_height_profile_map(
+            isovalue=isovalue,
+            tolerance=tolerance,
+            grid_multiplier=grid_multiplier,
+            z_min=z_min,
+            z_max=z_max,
+            xy_tiling=xy_tiling,
+        )
+        cs = ax.contourf(
+            x,
+            y,
+            z,
+            cmap=cmap,
+            levels=levels,
+        )
+        fig.colorbar(cs)
+        ax.set_aspect("equal")
+        ax.set_xlabel("x / Ang")
+        ax.set_ylabel("y / Ang")
+
+
+def plot_contour_chm(
+    cubes: List[RhoCube],
+    center_coord: float,
+    thickness: float,
+    levels: int,
+    cmap: str = "viridis",
+):
+    """
+    Plots a contour plot of the height profile map of the cube file.
+    """
+    if isinstance(cubes, RhoCube):
+        cubes = [cubes]
+
+    fig, axes = plt.subplots(
+        len(cubes),
+        1,
+        figsize=(5 * len(cubes), 25),
+        sharey=True,
+        sharex=True,
+    )
+
+    for q, ax in zip(cubes, axes):
+        x, y, z = q.get_slab_slice(
+            axis=2,
+            center_coord=q.frame.positions[:, 2].max() + center_coord,
+            thickness=thickness,
+        )
+
+        cs = ax.contourf(
+            x,
+            y,
+            z,
+            cmap=cmap,
+            levels=levels,
+        )
+        fig.colorbar(cs)
+        ax.set_aspect("equal")
+        ax.set_xlabel("x / Ang")
+        ax.set_ylabel("y / Ang")
+
+
 def contour_scatter_matrix(
     settings: dict,
     cube_paths: List[str] = None,

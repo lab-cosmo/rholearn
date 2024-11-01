@@ -1,11 +1,11 @@
 # Slurm parameters for the HPC submission script
 SLURM_PARAMS:
-    job-name: "qm7"
+    job-name: "silicon"
     nodes: 1
     time: "00:15:00"
     mem-per-cpu: 0
     partition: "jobs"
-    ntasks-per-node: 18
+    ntasks-per-node: 1
 
 # Modules to load in the HPC submission script, i.e. "module load X"
 LOAD_MODULES:  

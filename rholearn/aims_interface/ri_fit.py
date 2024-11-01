@@ -10,9 +10,9 @@ from os.path import exists, join
 import numpy as np
 from chemfiles import Frame
 
-from rholearn.rholearn import mask
 from rholearn.aims_interface import hpc, io, orbitals
 from rholearn.options import get_options
+from rholearn.rholearn import mask
 from rholearn.utils import system
 from rholearn.utils.io import pickle_dict, unpickle_dict
 
@@ -247,7 +247,7 @@ def _get_options() -> None:
     Sets the settings globally. Ensures the defaults are set first and then
     overwritten with user settings.
     """
-    dft_options = get_options("dft")
+    dft_options = get_options("dft", "rholearn")
     hpc_options = get_options("hpc")
 
     # Set some extra directories
@@ -255,10 +255,10 @@ def _get_options() -> None:
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
     dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
     )
     dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
     )
 
     return dft_options, hpc_options

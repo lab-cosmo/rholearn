@@ -1,0 +1,7 @@
+# Cross-validation splits (number of frames)
+N_TRAIN: null
+N_VAL: null
+N_TEST: null
+
+# Other user settings here:
+# ...

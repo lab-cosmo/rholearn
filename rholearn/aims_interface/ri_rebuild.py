@@ -9,9 +9,9 @@ from typing import Callable, List
 import numpy as np
 from chemfiles import Frame
 
-from rholearn.rholearn import mask
 from rholearn.aims_interface import hpc, io, parser
 from rholearn.options import get_options
+from rholearn.rholearn import mask
 from rholearn.utils import convert, system
 
 
@@ -177,7 +177,7 @@ def _get_options() -> None:
     Sets the settings globally. Ensures the defaults are set first and then
     overwritten with user settings.
     """
-    dft_options = get_options("dft")
+    dft_options = get_options("dft", "rholearn")
     hpc_options = get_options("hpc")
 
     # Set some extra directories
@@ -185,16 +185,16 @@ def _get_options() -> None:
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
     dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
     )
     dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
     )
     dft_options["REBUILD_DIR"] = lambda frame_idx: join(
         dft_options["DATA_DIR"],
         "raw",
         f"{frame_idx}",
-        dft_options["RI_FIT_ID"],
+        dft_options["RUN_ID"],
         "rebuild",
     )
 

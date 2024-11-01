@@ -34,7 +34,7 @@ where $\rho^{\text{RI}}(\mathbf{r})$ the basis set approximation to it, $\varphi
 
 An equivariant model is then trained to predict coefficients $d_b^{\text{ML}}$ that reconstruct a density in real-space, ideally minimising the generalisation error on the real-space DFT densities of a test set.
 
-For one of the original workflows for predicting the electron density under the density-fitting frameworl, readers are referred to [*SALTED*](https://github.com/andreagrisafi/SALTED). This uses a symmetry-adapted Gaussian process regression (SA-GPR) method via sparse kernel ridge regression to learn and predict $d_b^{\text{ML}}$.
+For one of the original workflows for predicting the electron density under the density-fitting framework, readers are referred to [*SALTED*](https://github.com/andreagrisafi/SALTED). This uses a symmetry-adapted Gaussian process regression (SA-GPR) method via sparse kernel ridge regression to learn and predict $d_b^{\text{ML}}$.
 
 # Goals
 
@@ -55,7 +55,7 @@ Leveraging the speed- and memory-efficient operations of `torch`, and using buil
 
 With a working `conda` installation, first set up an environment:
 ```bash
-conda create -n rho python==3.11
+conda create -n rho python==3.12
 conda activate rho
 ```
 Then clone and install `rholearn`:
@@ -82,7 +82,9 @@ In a run directory, user-options are defined in YAML files named ["dft-options.y
 
 Default options can be found in the [rholearn/options/](rholearn/options) directory, and some templates for user options can be found in the [examples/options/](example/options) directory.
 
-Then, data can be generated and model training and evaluation run with the following CLI commands:
+#### `rholearn`
+
+Data can be generated with the following:
 
 ```bash
 rholearn_run_scf  # run SCF with FHI-aims
@@ -94,11 +96,34 @@ rholearn_setup_ri_fit  # setup RI fitting calculation
 rholearn_run_ri_fit  # run RI fitting with FHI-aims
 
 rholearn_process_ri_fit  # process RI outputs
-
-rholearn_train  # train model with rholearn
-
-rholearn_eval  # evaluate model with rholearn
 ```
+
+and model training and evaluation run with:
+
+```bash
+rholearn_train  # train model
+
+rholearn_eval  # evaluate model
+```
+
+#### `doslearn`
+
+Data can be generated with the following:
+
+```bash
+doslearn_run_scf  # run SCF with FHI-aims
+
+doslearn_process_scf  # process SCF outputs
+```
+
+and model training and evaluation run with:
+
+```bash
+doslearn_train  # train model
+
+doslearn_eval  # evaluate model
+```
+
 
 ### Tutorial 
 

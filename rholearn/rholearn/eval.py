@@ -6,9 +6,9 @@ from typing import List
 import numpy as np
 import torch
 
-from rholearn import train_utils
 from rholearn.aims_interface import fields, ri_rebuild
 from rholearn.options import get_options
+from rholearn.rholearn import train_utils
 from rholearn.utils import convert, io, system
 
 
@@ -23,9 +23,16 @@ def eval():
     t0_eval = time.time()
     dft_options, hpc_options, ml_options = _get_options()
 
-    # Read frames and frame indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = list(range(len(frames)))
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = None
+    # Load all the frames
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
+
+    if frame_idxs is None:
+        frame_idxs = list(range(len(all_frames)))
 
     _check_input_settings(dft_options, ml_options, frame_idxs)
 
@@ -54,7 +61,6 @@ def eval():
         n_test=ml_options["N_TEST"],
         seed=ml_options["SEED"],
     )
-    all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
     test_frames = [all_frames[A] for A in test_id]
 
     # ===== Load model and perform inference =====
@@ -195,19 +201,19 @@ def _get_options():
     with user settings.
     """
 
-    dft_options = get_options("dft")
+    dft_options = get_options("dft", "rholearn")
     hpc_options = get_options("hpc")
-    ml_options = get_options("ml")
+    ml_options = get_options("ml", "rholearn")
 
     # Set some extra directories
     dft_options["SCF_DIR"] = lambda frame_idx: join(
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
     dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
     )
     dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
     )
     ml_options["ML_DIR"] = os.getcwd()
     ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")

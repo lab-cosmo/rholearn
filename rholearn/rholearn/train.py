@@ -5,10 +5,10 @@ from typing import List
 
 import torch
 
-from rholearn import train_utils
-from rholearn.loss import RhoLoss
-from rholearn.model import RhoModel
 from rholearn.options import get_options
+from rholearn.rholearn import train_utils
+from rholearn.rholearn.loss import RhoLoss
+from rholearn.rholearn.model import RhoModel
 from rholearn.utils import convert, io, system, utils
 
 
@@ -27,9 +27,16 @@ def train():
     t0_setup = time.time()
     dft_options, ml_options = _get_options()
 
-    # Read frames and frame indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    frame_idxs = list(range(len(frames)))
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = None
+    # Load all the frames
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
+
+    if frame_idxs is None:
+        frame_idxs = list(range(len(all_frames)))
 
     _check_input_settings(dft_options, ml_options, frame_idxs)
 
@@ -48,7 +55,7 @@ def train():
     # Initialize or load pre-trained model, initialize new optimizer and scheduler
     if ml_options["TRAIN"]["restart_epoch"] is None:
 
-        epochs = torch.arange(ml_options["TRAIN"]["n_epochs"] + 1)
+        epochs = torch.arange(1, ml_options["TRAIN"]["n_epochs"] + 1)
 
         if ml_options["PRETRAINED_MODEL"] is None:  # initialize model from scratch
             io.log(log_path, "Initializing model")
@@ -96,6 +103,9 @@ def train():
                 optimizer, **ml_options["SCHEDULER_ARGS"]
             )
 
+        # Initialize the best validation loss
+        best_val_loss = torch.tensor(float("inf"))
+
     # Load model, optimizer, scheduler from checkpoint for restarting training
     else:
 
@@ -138,6 +148,14 @@ def train():
                 )
             )
 
+        # Load the validation loss
+        best_val_loss = torch.load(
+            join(
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "val_loss.pt",
+            )
+        )
+
     # Try a model save/load
     torch.save(model, join(ml_options["ML_DIR"], "model.pt"))
     torch.load(join(ml_options["ML_DIR"], "model.pt"))
@@ -172,7 +190,7 @@ def train():
     io.log(log_path, f"Training system ID: {all_subset_id[0]}")
     io.log(log_path, "Build training dataset")
     train_dataset = train_utils.get_dataset(
-        frames=[frames[A] for A in all_subset_id[0]],
+        frames=[all_frames[A] for A in all_subset_id[0]],
         frame_idxs=list(all_subset_id[0]),
         model=model,
         data_names=ml_options["TRAIN_DATA_NAMES"],
@@ -200,7 +218,7 @@ def train():
     io.log(log_path, f"Validation system ID: {all_subset_id[1]}")
     io.log(log_path, "Build validation dataset")
     val_dataset = train_utils.get_dataset(
-        frames=[frames[A] for A in all_subset_id[1]],
+        frames=[all_frames[A] for A in all_subset_id[1]],
         frame_idxs=list(all_subset_id[1]),
         model=model,
         data_names=ml_options["VAL_DATA_NAMES"],
@@ -224,15 +242,18 @@ def train():
         },
     )
 
+    # Finish setup
     dt_setup = time.time() - t0_setup
     io.log(log_path, train_utils.report_dt(dt_setup, "Setup complete"))
 
     # ===== Training loop =====
 
-    io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1]}")
+    io.log(
+        log_path,
+        f"Start training over epochs {epochs[0]} -> {epochs[-1] - 1} (inclusive)",
+    )
 
     t0_training = time.time()
-    best_val_loss = torch.tensor(float("inf"))
     for epoch in epochs:
 
         # Run training step at every epoch
@@ -252,7 +273,7 @@ def train():
         dt_val_via_c = torch.nan
         # dt_val_via_w = torch.nan
         lr = torch.nan
-        if epoch % ml_options["TRAIN"]["val_interval"] == 0:
+        if epoch % ml_options["TRAIN"]["val_interval"] == 0 or epoch == 1:
             # a) using target_c only
             t0_val_via_c = time.time()
             val_loss_via_c = train_utils.epoch_step(
@@ -286,7 +307,7 @@ def train():
                 lr = scheduler._last_lr[0]
 
         # Log results on this epoch
-        if epoch % ml_options["TRAIN"]["log_interval"] == 0:
+        if epoch % ml_options["TRAIN"]["log_interval"] == 0 or epoch == 1:
             log_msg = (
                 f"epoch {epoch}"
                 f" train_loss {train_loss}"
@@ -302,15 +323,28 @@ def train():
         # Checkpoint on this epoch
         if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0 and epoch != 0:
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, chkpt_dir=ml_options["CHKPT_DIR"](epoch)
+                model,
+                optimizer,
+                scheduler,
+                val_loss=val_loss_via_c,
+                chkpt_dir=ml_options["CHKPT_DIR"](epoch),
             )
 
         # Save checkpoint if best validation loss
         if val_loss_via_c < best_val_loss:
             best_val_loss = val_loss_via_c
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, chkpt_dir=ml_options["CHKPT_DIR"]("best")
+                model,
+                optimizer,
+                scheduler,
+                val_loss=val_loss_via_c,
+                chkpt_dir=ml_options["CHKPT_DIR"]("best"),
             )
+
+        # TODO: Early stopping with ReduceLROnPlateau ?
+        # if lr <= ml_options["SCHEDULER_ARGS"]["min_lr"]:
+        #     io.log(log_path, "Early stopping")
+        #     break
 
     # Finish
     dt_train = time.time() - t0_training
@@ -332,10 +366,10 @@ def _get_options():
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
     dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
     )
     dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RI_FIT_ID"]
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
     )
     ml_options["ML_DIR"] = os.getcwd()
     ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")

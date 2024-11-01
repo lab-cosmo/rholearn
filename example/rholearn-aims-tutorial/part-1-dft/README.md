@@ -2,7 +2,7 @@
 
 ## 1.0: TLDR of requried commands
 
-After modifying the user options in `dft-options.yaml` and `hpc-options.yaml`, the commands needed to generate data for training a model are below. For a full explanation of each, read on to the following sections.
+After modifying the user options in [dft-options.yaml](dft-options.yaml) and [hpc-options.yaml](hpc-options.yaml), the commands needed to generate data for training a model are below. For a full explanation of each, read on to the following sections.
 
 ```bash
 # Modify dft-options.yaml and hpc-options.yaml as appropriate
@@ -29,7 +29,7 @@ rholearn_run_ri_rebuild
 
 ## 1.1: Specify DFT and HPC options
 
-Inspect the file `dft-options.yaml` and edit the variables found there, specific for your set up.
+Inspect the file [dft-options.yaml](dft-options.yaml) and edit the variables found there, specific for your set up.
 
 You can also inspect the default DFT options, which can be printed with:
 ```python
@@ -38,9 +38,9 @@ from rholearn.options import get_defaults
 
 pprint.pprint(get_defaults("dft", "rholearn"))
 ```
-Any of these can be modified by specification in the local file `dft-options.yaml`.
+Any of these can be modified by specification in the local file [dft-options.yaml](dft-options.yaml).
 
-**Note**: the options in `hpc-options.yaml` will also need to be changed, depending on your cluster. The way that `rholearn.aims_interface` creates run scripts for HPC resources has only been tested on a handful of clusters, all with slurm schedulers. It is not completely general and may require some hacking if not compatible with your systems. The `"LOAD_MODULES"` and `"EXPORT_VARIABLES"` attempt to allows generic loading of modules and exporting of environment variables, respectively, but something may be missing.
+**Note**: the options in [hpc-options.yaml](hpc-options.yaml) will also need to be changed, depending on your cluster. The way that `rholearn.aims_interface` creates run scripts for HPC resources has only been tested on a handful of clusters, all with slurm schedulers. It is not completely general and may require some hacking if not compatible with your systems. The `"LOAD_MODULES"` and `"EXPORT_VARIABLES"` attempt to allows generic loading of modules and exporting of environment variables, respectively, but something may be missing.
 
 ## 1.2: Converge SCF
 
@@ -49,7 +49,7 @@ Run the SCF procedure. This submits a parallel array of SCF calculations for eac
 ```python
 from rholearn.aims_interface import scf
 
-scf.run_scf()
+scf.rholearn_run_scf()
 ```
 Alternatively, from the command line: `rholearn_run_scf`
 
@@ -71,13 +71,13 @@ raw/                                # Raw data directory
     ...
 ```
 
-The calculation has (hopefully) converged to the SCF solution for the given input options, and saved the converged solution to the checkpoint density matrix file `D_*.csc`.
+The calculation has (hopefully) converged to the SCF solution for the given input options, and saved the converged solution to the checkpoint density matrix file "D_*.csc".
 
-Now process the SCF outputs - this essentially just parses `aims.out` to extracts various information and pickles it to file `calc_info.pickle`.
+Now process the SCF outputs - this essentially just parses "aims.out" to extracts various information and pickles it to file "calc_info.pickle".
 ```python
 from rholearn.aims_interface import scf
 
-scf.process_scf()
+scf.rholearn_process_scf()
 ```
 
 Alternatively, from the command line: `rholearn_process_scf`
@@ -128,7 +128,7 @@ raw/                                # Raw data directory
         ├── rho_scf.out             # Electron density from SCF calculation
         ├── ri_ovlp.out             # Overlap matrix for RI basis
         ├── ri_projections.out      # Electron density projections on RI basis
-        ├── ri_restart_ceoffs.out   # RI fitting coefficients
+        ├── ri_restart_coeffs.out   # RI fitting coefficients
         └── slurm_*.out             # Output file from SLURM job scheduler
     ├── aims.out                    # Previous outputs from SCF step
     ├── ...                         # ...
@@ -167,7 +167,7 @@ The processed data contained in `processed/`, along with the `.xyz` file in `dat
 
 ## 1.4: [Optional] Check the rebuild consistency
 
-This step isn't required to generate data, but can be used as a consistency check. One can take the vector of RI coefficients `ri_restart_coeffs.out` and perform an RI rebuild calculation in `FHI-aims`. The field constructed should be exactly equivalent to the field `rho_rebuilt_ri.out` output in the RI step above.
+This step isn't required to generate data, but can be used as a consistency check. One can take the vector of RI coefficients "ri_restart_coeffs.out" and perform an RI rebuild calculation in `FHI-aims`. The field constructed should be exactly equivalent to the field "rho_rebuilt_ri.out" output in the RI step above.
 
 ```python
 from rholearn.aims_interface import ri_rebuild
@@ -175,6 +175,6 @@ from rholearn.aims_interface import ri_rebuild
 ri_rebuild.run_ri_rebuild()
 ```
 
-Alternatively, from the command line: ` rholearn_run_ri_rebuild`
+Alternatively, from the command line: `rholearn_run_ri_rebuild`
 
 One can check this consistency in the [supporting notebook](part-1-dft.ipynb).

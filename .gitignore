@@ -8,10 +8,10 @@ rholearn.egg-info
 *.out
 *.sh
 
-example/rholearn-aims-tutorial/part-1-dft/data
-example/rholearn-aims-tutorial/part-2-ml/checkpoint
-example/rholearn-aims-tutorial/part-2-ml/evaluation
-example/rholearn-aims-tutorial/part-2-ml/outputs
+example/*-aims-tutorial/part-1-dft/data
+example/*-aims-tutorial/part-2-ml/checkpoint
+example/*-aims-tutorial/part-2-ml/evaluation
+example/*-aims-tutorial/part-2-ml/outputs
 
 tests/rholearn/generate_example_data/*/data
 tests/rholearn/generate_example_data/*/processed_data
