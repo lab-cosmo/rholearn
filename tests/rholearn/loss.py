@@ -3,18 +3,17 @@ Tests :py:mod:`rholearn.loss`.
 """
 
 from os.path import join
-from typing import List, Union
+from typing import List
 
 import pytest
 import torch
 import metatensor.torch as mts
 from metatensor.torch.learn.nn import Linear
 
-from rholearn import mask
-from rholearn.loss import RhoLoss
+from rholearn.rholearn import mask
+from rholearn.rholearn.loss import RhoLoss
 from rholearn.aims_interface import io
 from rholearn.utils import convert, system
-from rholearn.utils.io import unpickle_dict
 
 FRAME_IDXS = [0, 1, 2]
 XYZ_1 = join(
