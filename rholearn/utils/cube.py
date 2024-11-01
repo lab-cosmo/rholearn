@@ -151,7 +151,6 @@ class RhoCube(cube_tools.cube):
 
         return X, Y, Z.T
 
-
     def show_volumetric(self, isovalue: float = 0.01):
         """
         Uses py3Dmol to display the volumetric data in the cube file.
@@ -244,7 +243,7 @@ def plot_contour_chm(
             center_coord=q.frame.positions[:, 2].max() + center_coord,
             thickness=thickness,
         )
-    
+
         cs = ax.contourf(
             x,
             y,
@@ -256,7 +255,6 @@ def plot_contour_chm(
         ax.set_aspect("equal")
         ax.set_xlabel("x / Ang")
         ax.set_ylabel("y / Ang")
-
 
 
 def contour_scatter_matrix(

@@ -15,17 +15,21 @@ def rholearn_run_scf() -> None:
     """Runs a FHI-aims SCF calculation to generate data for rholearn"""
     _run_scf("rholearn")
 
+
 def doslearn_run_scf() -> None:
     """Runs a FHI-aims SCF calculation to generate data for doslearn"""
     _run_scf("doslearn")
+
 
 def rholearn_process_scf() -> None:
     """Processes FHI-aims SCF outputs for rholearn"""
     _process_scf("rholearn")
 
+
 def doslearn_process_scf() -> None:
     """Processes FHI-aims SCF outputs for doslearn"""
     _process_scf("doslearn")
+
 
 def _run_scf(model: str) -> None:
     """
@@ -100,13 +104,11 @@ def _process_scf(model: str) -> None:
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = list(
-            range(len(system.read_frames_from_xyz(dft_options["XYZ"])))
-        )
+        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
 
     python_command = (
-        'from rholearn.aims_interface import parser;'
-        ' from rholearn.utils.io import pickle_dict;'
+        "from rholearn.aims_interface import parser;"
+        " from rholearn.utils.io import pickle_dict;"
         " calc_info = parser.parse_aims_out(aims_output_dir='.');"
         " pickle_dict('calc_info.pickle', calc_info);"
     )
@@ -126,22 +128,21 @@ def _process_scf(model: str) -> None:
     if dft_options.get("DOS_SPLINES") is not None:
         _spline_eigenvalues()
 
+
 def _spline_eigenvalues() -> None:
     """
     Parses the files "Final_KS_eigenvalues.dat" and splines them. Saves the resulting
     TensorMap objects to the processed data directory.
     """
 
-    #Set the DFT settings globally
+    # Set the DFT settings globally
     dft_options, _ = _get_options("doslearn")
 
     # Get the frame indices
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = list(
-            range(len(system.read_frames_from_xyz(dft_options["XYZ"])))
-        )
+        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
 
     for A in frame_idxs:
         parser.spline_eigenenergies(
@@ -153,7 +154,6 @@ def _spline_eigenvalues() -> None:
             interval=dft_options["DOS_SPLINES"]["interval"],
             save_dir=dft_options["PROCESSED_DIR"](A),
         )
-
 
 
 def _get_options(model: str) -> None:

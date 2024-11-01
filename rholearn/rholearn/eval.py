@@ -6,9 +6,9 @@ from typing import List
 import numpy as np
 import torch
 
-from rholearn.rholearn import train_utils
 from rholearn.aims_interface import fields, ri_rebuild
 from rholearn.options import get_options
+from rholearn.rholearn import train_utils
 from rholearn.utils import convert, io, system
 
 
@@ -28,9 +28,9 @@ def eval():
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
         frame_idxs = None
-    # Load all the frames 
+    # Load all the frames
     all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-    
+
     if frame_idxs is None:
         frame_idxs = list(range(len(all_frames)))
 

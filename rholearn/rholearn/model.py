@@ -11,8 +11,8 @@ from metatensor.torch.learn import nn
 from rascaline.torch import SphericalExpansion
 from rascaline.torch.utils import DensityCorrelations
 
-from rholearn.rholearn import mask
-from rholearn.utils import _dispatch, system
+from rholearn.rholearn import mask, train_utils
+from rholearn.utils import system
 
 
 class _DescriptorCalculator(torch.nn.Module):
@@ -428,11 +428,11 @@ class RhoModel(torch.nn.Module):
 
         # Re-index "system" metadata along samples axis
         if reindex:
-            descriptor = _reindex_tensormap(descriptor, frame_idxs)
+            descriptor = train_utils.reindex_tensormap(descriptor, frame_idxs)
 
         # Split by frame
         if split_by_frame:
-            descriptor = _split_tensormap_by_system(descriptor, frame_idxs)
+            descriptor = train_utils.split_tensormap_by_system(descriptor, frame_idxs)
 
         return descriptor
 
@@ -468,11 +468,11 @@ class RhoModel(torch.nn.Module):
 
         # Re-index "system" metadata along samples axis
         if reindex:
-            prediction = _reindex_tensormap(prediction, frame_idxs)
+            prediction = train_utils.reindex_tensormap(prediction, frame_idxs)
 
         # Split by frame
         if split_by_frame:
-            prediction = _split_tensormap_by_system(prediction, frame_idxs)
+            prediction = train_utils.split_tensormap_by_system(prediction, frame_idxs)
 
         return prediction
 
@@ -527,11 +527,11 @@ class RhoModel(torch.nn.Module):
         # Drop blocks that don't correspond to the atom types in the respective frames
         if split_by_frame:
             return [
-                _drop_blocks_for_nonpresent_types(frame, pred)
+                train_utils.drop_blocks_for_nonpresent_types(frame, pred)
                 for frame, pred in zip(frames, prediction)
             ]
 
-        return _drop_blocks_for_nonpresent_types(frames, prediction)
+        return train_utils.drop_blocks_for_nonpresent_types(frames, prediction)
 
     def predict(
         self,
@@ -621,92 +621,6 @@ class RhoModel(torch.nn.Module):
 
 
 # ===== Helper functions =====
-
-
-def _reindex_tensormap(
-    tensor: mts.TensorMap,
-    system_ids: List[int],
-) -> mts.TensorMap:
-    """
-    Takes a single TensorMap `tensor` containing data on multiple systems and re-indexes
-    the "system" dimension of the samples. Assumes input has numeric system indices from
-    {0, ..., N_system - 1} (inclusive), and maps these indices one-to-one with those
-    passed in ``system_ids``.
-    """
-    assert tensor.sample_names[0] == "system"
-
-    index_mapping = {i: A for i, A in enumerate(system_ids)}
-
-    def new_row(row):
-        return [index_mapping[row[0].item()]] + [i for i in row[1:]]
-
-    new_blocks = []
-    for block in tensor.blocks():
-        new_samples = mts.Labels(
-            names=block.samples.names,
-            values=torch.tensor(
-                [new_row(row) for row in block.samples.values],
-                dtype=torch.int32,
-            ),
-        )
-        new_block = mts.TensorBlock(
-            values=block.values,
-            samples=new_samples,
-            components=block.components,
-            properties=block.properties,
-        )
-        new_blocks.append(new_block)
-
-    return mts.TensorMap(tensor.keys, new_blocks)
-
-
-def _split_tensormap_by_system(
-    tensor: mts.TensorMap, system_ids: List[int]
-) -> List[mts.TensorMap]:
-    """
-    Splits a single TensorMap `tensor` into per-system TensorMaps along the samples
-    axis.
-    """
-    return [
-        mts.slice(
-            tensor,
-            "samples",
-            labels=mts.Labels(names="system", values=torch.tensor([A]).reshape(-1, 1)),
-        )
-        for A in system_ids
-    ]
-
-
-def _drop_blocks_for_nonpresent_types(
-    frames: Union[Frame, List[Frame]], tensor: mts.TensorMap
-) -> mts.TensorMap:
-    """
-    Drops blocks from a TensorMap `tensor` that correspond to atom types not present in
-    the given ``frame``.
-    """
-    # Get the unique atom types in `frames`
-    if isinstance(frames, Frame):
-        frames = [frames]
-    atom_types = []
-    for frame in frames:
-        for _type in system.get_types(frame):
-            if _type not in atom_types:
-                atom_types.append(_type)
-
-    # Build the new keys and TensorMap
-    new_key_vals = []
-    for key in tensor.keys:
-        if key["center_type"] in atom_types:
-            new_key_vals.append(list(key.values))
-
-    new_keys = mts.Labels(
-        names=tensor.keys.names,
-        values=_dispatch.int_array(new_key_vals, "torch"),
-    )
-    return mts.TensorMap(
-        keys=new_keys,
-        blocks=[tensor[key] for key in new_keys],
-    )
 
 
 def _target_basis_set_to_in_keys(target_basis: mts.Labels) -> mts.Labels:

@@ -4,10 +4,10 @@ import metatensor.torch as mts
 import rascaline.torch
 import torch
 from chemfiles import Atom, Frame
-
 from metatensor.torch.learn import ModuleMap
 from rascaline.torch import SoapPowerSpectrum
 
+from rholearn.rholearn import train_utils
 from rholearn.utils import system
 
 
@@ -40,16 +40,15 @@ class SoapDosNet(torch.nn.Module):
         self._dtype = dtype
         self._device = device
 
-        assert energy_reference in ["Fermi", "Hartree"], (
-            "Energy reference must be either 'Fermi' or 'Hartree'."
-        )
+        assert energy_reference in [
+            "Fermi",
+            "Hartree",
+        ], "Energy reference must be either 'Fermi' or 'Hartree'."
         self._energy_reference = energy_reference
 
         # Define the target DOS energy grid
         n_grid_points = int(
-            torch.ceil(
-                torch.tensor(max_energy - min_energy) / interval
-            )
+            torch.ceil(torch.tensor(max_energy - min_energy) / interval)
         )
         self._x_dos = min_energy + torch.arange(n_grid_points) * interval
 
@@ -118,36 +117,66 @@ class SoapDosNet(torch.nn.Module):
         return soap
 
     def forward(
-        self, frames: List[Frame], descriptor: Optional[mts.TensorMap] = None
+        self,
+        *,
+        frames: List[Frame],
+        frame_idxs: Optional[List[int]] = None,
+        descriptor: Optional[mts.TensorMap] = None,
+        split_by_frame: bool = False,
     ) -> mts.TensorMap:
         """
         Computes a descriptor if not provided, and passes it through the neural network
         to predict the local DOS per atom.
         """
-
+        # Compute descriptor if not provided
         if descriptor is None:
             descriptor = self.compute_descriptor(frames).to(self._dtype)
+
+        # Make prediction
         prediction = self._nn.forward(descriptor)
-    
-        return prediction.keys_to_samples(["center_type"])
+
+        # Move center_type to samples
+        prediction = prediction.keys_to_samples(["center_type"])
+
+        # Re-index "system" metadata along samples axis
+        if frame_idxs is not None:
+            prediction = train_utils.reindex_tensormap(prediction, frame_idxs)
+
+        # Split by frame
+        if split_by_frame:
+            prediction = train_utils.split_tensormap_by_system(prediction, frame_idxs)
+
+        return prediction
 
     def predict(
-        self, frames: List[Frame], descriptor: Optional[mts.TensorMap] = None
+        self, frames: List[Frame], frame_idxs: Optional[List[int]] = None
     ) -> mts.TensorMap:
         """
         Computes a descriptor if not provided, and passes it through the neural network
         to predict the global DOS per structure.
         """
-        prediction = self.forward(frames, descriptor)
-        return mts.sum_over_samples(prediction, "atom")
-        
+        # Make prediction
+        prediction = self.forward(
+            frames=frames,
+            frame_idxs=None,
+            descriptor=None,
+            split_by_frame=False,
+        )
 
+        # Sum atomic contributions to get global DOS
+        prediction = mts.sum_over_samples(prediction, "atom")
+
+        # Re-index "system" metadata along samples axis and split by frame
+        prediction = train_utils.reindex_tensormap(prediction, frame_idxs)
+        prediction = train_utils.split_tensormap_by_system(prediction, frame_idxs)
+
+        return prediction
 
     def _get_dummy_descriptor(self) -> mts.TensorMap:
         """
         Builds a dummy :py:class:`chemfiles.Frame` object from the global atom types in
-        `descriptor_calculator._atom_types`, computes the descriptor for it, and extracts
-        the properties for each block indexed by the keys in `in_keys`.
+        `descriptor_calculator._atom_types`, computes the descriptor for it, and
+        extracts the properties for each block indexed by the keys in `in_keys`.
         """
         dummy_frame = Frame()
         for i, atom_type in enumerate(self._atom_types):

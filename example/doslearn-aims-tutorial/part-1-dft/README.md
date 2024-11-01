@@ -2,7 +2,7 @@
 
 ## 1.0: TLDR of requried commands
 
-After modifying the user options in `dft-options.yaml` and `hpc-options.yaml`, the commands needed to generate data for training a model are below. For a full explanation of each, read on to the following sections.
+After modifying the user options in [dft-options.yaml](dft-options.yaml) and [hpc-options.yaml](hpc-options.yaml), the commands needed to generate data for training a model are below. For a full explanation of each, read on to the following sections.
 
 ```bash
 # Modify dft-options.yaml and hpc-options.yaml as appropriate
@@ -17,7 +17,7 @@ doslearn_process_scf
 
 ## 1.1: Specify DFT and HPC options
 
-Inspect the file `dft-options.yaml` and edit the variables found there, specific for your set up.
+Inspect the file [dft-options.yaml](dft-options.yaml) and edit the variables found there, specific for your set up.
 
 You can also inspect the default DFT options, which can be printed with:
 ```python
@@ -26,9 +26,9 @@ from rholearn.options import get_defaults
 
 pprint.pprint(get_defaults("dft", "doslearn"))
 ```
-Any of these can be modified by specification in the local file `dft-options.yaml`.
+Any of these can be modified by specification in the local file [dft-options.yaml](dft-options.yaml).
 
-**Note**: the options in `hpc-options.yaml` will also need to be changed, depending on your cluster. The way that `rholearn.aims_interface` creates run scripts for HPC resources has only been tested on a handful of clusters, all with slurm schedulers. It is not completely general and may require some hacking if not compatible with your systems. The `"LOAD_MODULES"` and `"EXPORT_VARIABLES"` attempt to allows generic loading of modules and exporting of environment variables, respectively, but something may be missing.
+**Note**: the options in [hpc-options.yaml](hpc-options.yaml) will also need to be changed, depending on your cluster. The way that `rholearn.aims_interface` creates run scripts for HPC resources has only been tested on a handful of clusters, all with slurm schedulers. It is not completely general and may require some hacking if not compatible with your systems. The `"LOAD_MODULES"` and `"EXPORT_VARIABLES"` attempt to allows generic loading of modules and exporting of environment variables, respectively, but something may be missing.
 
 ## 1.2: Converge SCF
 
@@ -60,7 +60,7 @@ raw/                                # Raw data directory
 
 The calculation has (hopefully) converged to the SCF solution for the given input options.
 
-Now process the SCF outputs. First, the `aims.out` file is parsed to extract various information and pickle it to file "calc_info.pickle" in the `FHI-aims` run directory.
+Now process the SCF outputs. First, the "aims.out" file is parsed to extract various information and pickle it to file "calc_info.pickle" in the `FHI-aims` run directory.
 
 Next, the eigenvalues contained in "Final_KS_eigenvalues.dat" are parsed and splines constructed for them. These splines are constructed according to the splines settings `DOS_SPLINES` specified in [dft-options.yaml](dft-options.yaml). These splines are stored in `TensorMap` format and saved to a series of processed data directories at path (i.e. for structure index 0) `data/processed/0/dos/dos_spline.npz`. 
 
@@ -72,6 +72,6 @@ from rholearn.aims_interface import scf
 scf.doslearn_process_scf()
 ```
 
-Alternatively, from the command line: `rholearn_process_scf`
+Alternatively, from the command line: `doslearn_process_scf`
 
 In the supporting notebook [part-1-dft](./part-1-dft.ipynb), SCF convergence can be checked.

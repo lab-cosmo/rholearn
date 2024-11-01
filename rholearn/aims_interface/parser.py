@@ -10,7 +10,6 @@ import metatensor
 import metatensor.torch
 import numpy as np
 import torch
-
 from chemfiles import Frame
 from scipy.interpolate import CubicHermiteSpline
 
@@ -751,9 +750,9 @@ def parse_eigenvalues(aims_output_dir: str) -> List[List[float]]:
             line = f.readline()
             if "k-point number:" in line:
                 echunk = False  # We have reached the start of the next k-point
-                if (
-                    first
-                ):  # Save the stored eigenenergies for each k-point, unless its the first one
+                # Save the stored eigenenergies for each k-point, unless its the first
+                # one
+                if first:
                     first = False
                 else:
                     energies.append(k_energy)
@@ -761,7 +760,8 @@ def parse_eigenvalues(aims_output_dir: str) -> List[List[float]]:
                 try:
                     energy = float(line.split()[-1])
                     k_energy.append(energy)
-                except:
+                except:  # noqa: B001, E722
+                    # TODO: remove bare except here
                     pass
 
             if "k-point in cartesian units" in line:
@@ -772,6 +772,7 @@ def parse_eigenvalues(aims_output_dir: str) -> List[List[float]]:
                 break
 
     return energies
+
 
 def spline_eigenenergies(
     aims_output_dir: str,

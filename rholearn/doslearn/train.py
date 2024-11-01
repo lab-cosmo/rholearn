@@ -1,25 +1,18 @@
 import os
 import time
 from functools import partial
-from os.path import exists, join
+from os.path import join
 from typing import List
 
-import torch
 import metatensor.torch as mts
-from metatensor.torch.learn.data import (
-    DataLoader, IndexedDataset, group_and_join
-)
+import torch
+from metatensor.torch.learn.data import DataLoader, group_and_join
 
-from rholearn.aims_interface import io, parser
+from rholearn.aims_interface import parser
 from rholearn.doslearn import train_utils
 from rholearn.doslearn.model import SoapDosNet
 from rholearn.options import get_options
-from rholearn.rholearn.train_utils import (
-    create_subdir,
-    crossval_idx_split,
-    report_dt,
-    save_checkpoint,
-)
+from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.utils import io, system, utils
 
 
@@ -43,9 +36,9 @@ def train():
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
         frame_idxs = None
-    # Load all the frames 
+    # Load all the frames
     all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-    
+
     if frame_idxs is None:
         frame_idxs = list(range(len(all_frames)))
 
@@ -78,13 +71,13 @@ def train():
                     atom_types.update({type_})
             atom_types = list(atom_types)
 
-
             # Init model
             model = SoapDosNet(
                 ml_options["SPHERICAL_EXPANSION_HYPERS"],
                 atom_types=atom_types,
                 min_energy=dft_options["DOS_SPLINES"]["min_energy"],
-                max_energy=dft_options["DOS_SPLINES"]["max_energy"] - ml_options["TARGET_DOS"]["max_energy_buffer"],
+                max_energy=dft_options["DOS_SPLINES"]["max_energy"]
+                - ml_options["TARGET_DOS"]["max_energy_buffer"],
                 interval=dft_options["DOS_SPLINES"]["interval"],
                 energy_reference=ml_options["TARGET_DOS"]["reference"],
                 hidden_layer_widths=ml_options["HIDDEN_LAYER_WIDTHS"],
@@ -101,6 +94,8 @@ def train():
 
         # Load the Fermi levels
         if model._energy_reference == "Fermi":
+            # TODO: make this part of the data parsing - i.e. save a torch tensor
+            # "fermi.pt" along with "dos_spline.npz"?
             energy_reference = [
                 parser.parse_fermi_energy(dft_options["SCF_DIR"](A)) for A in frame_idxs
             ]
@@ -137,7 +132,6 @@ def train():
         # Initialize the best validation loss
         best_val_loss = torch.tensor(float("inf"))
 
-        
     # Load model, optimizer, scheduler from checkpoint for restarting training
     else:
 
@@ -176,9 +170,9 @@ def train():
         # Load the validation loss
         best_val_loss = torch.load(
             join(
-                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                    "val_loss.pt",
-                )
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "val_loss.pt",
+            )
         )
 
         # Load alignment
@@ -199,7 +193,7 @@ def train():
 
     # First define subsets of system IDs for crossval
     io.log(log_path, "Split system IDs into subsets")
-    all_subset_id = crossval_idx_split(  # cross-validation split of idxs
+    all_subset_id = rho_train_utils.crossval_idx_split(
         frame_idxs=frame_idxs,
         n_train=ml_options["N_TRAIN"],
         n_val=ml_options["N_VAL"],
@@ -267,14 +261,14 @@ def train():
     # Get the spline positions
     spline_positions = train_utils.get_spline_positions(
         min_energy=dft_options["DOS_SPLINES"]["min_energy"],
-        max_energy=dft_options["DOS_SPLINES"]["max_energy"] - ml_options["TARGET_DOS"]["max_energy_buffer"],
+        max_energy=dft_options["DOS_SPLINES"]["max_energy"]
+        - ml_options["TARGET_DOS"]["max_energy_buffer"],
         interval=dft_options["DOS_SPLINES"]["interval"],
     )
 
     # Finish setup
     dt_setup = time.time() - t0_setup
-    io.log(log_path, report_dt(dt_setup, "Setup complete"))
-
+    io.log(log_path, rho_train_utils.report_dt(dt_setup, "Setup complete"))
 
     # ===== Training loop =====
 
@@ -348,7 +342,7 @@ def train():
 
         # Checkpoint on this epoch, including alignment
         if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0:
-            save_checkpoint(
+            rho_train_utils.save_checkpoint(
                 model,
                 optimizer,
                 scheduler,
@@ -360,8 +354,12 @@ def train():
         # Save checkpoint if best validation loss
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_checkpoint(
-                model, optimizer, scheduler, val_loss, chkpt_dir=ml_options["CHKPT_DIR"]("best")
+            rho_train_utils.save_checkpoint(
+                model,
+                optimizer,
+                scheduler,
+                val_loss,
+                chkpt_dir=ml_options["CHKPT_DIR"]("best"),
             )
             torch.save(alignment, join(ml_options["CHKPT_DIR"]("best"), "alignment.pt"))
 
@@ -372,7 +370,7 @@ def train():
 
     # Finish
     dt_train = time.time() - t0_training
-    io.log(log_path, report_dt(dt_train, "Training complete"))
+    io.log(log_path, rho_train_utils.report_dt(dt_train, "Training complete"))
     io.log(log_path, f"Best validation loss: {best_val_loss:.5f}")
 
 
@@ -393,7 +391,7 @@ def _get_options():
         dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
     )
     ml_options["ML_DIR"] = os.getcwd()
-    ml_options["CHKPT_DIR"] = create_subdir(os.getcwd(), "checkpoint")
+    ml_options["CHKPT_DIR"] = rho_train_utils.create_subdir(os.getcwd(), "checkpoint")
 
     return dft_options, ml_options
 

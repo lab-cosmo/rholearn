@@ -4,11 +4,11 @@ from os.path import exists, join
 from typing import List
 
 import torch
+
+from rholearn.options import get_options
+from rholearn.rholearn import train_utils
 from rholearn.rholearn.loss import RhoLoss
 from rholearn.rholearn.model import RhoModel
-
-from rholearn.rholearn import train_utils
-from rholearn.options import get_options
 from rholearn.utils import convert, io, system, utils
 
 
@@ -32,9 +32,9 @@ def train():
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
         frame_idxs = None
-    # Load all the frames 
+    # Load all the frames
     all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-    
+
     if frame_idxs is None:
         frame_idxs = list(range(len(all_frames)))
 
@@ -151,9 +151,9 @@ def train():
         # Load the validation loss
         best_val_loss = torch.load(
             join(
-                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                    "val_loss.pt",
-                )
+                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                "val_loss.pt",
+            )
         )
 
     # Try a model save/load
@@ -248,7 +248,10 @@ def train():
 
     # ===== Training loop =====
 
-    io.log(log_path, f"Start training over epochs {epochs[0]} -> {epochs[-1] - 1} (inclusive)")
+    io.log(
+        log_path,
+        f"Start training over epochs {epochs[0]} -> {epochs[-1] - 1} (inclusive)",
+    )
 
     t0_training = time.time()
     for epoch in epochs:
@@ -320,14 +323,22 @@ def train():
         # Checkpoint on this epoch
         if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0 and epoch != 0:
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, val_loss=val_loss_via_c, chkpt_dir=ml_options["CHKPT_DIR"](epoch)
+                model,
+                optimizer,
+                scheduler,
+                val_loss=val_loss_via_c,
+                chkpt_dir=ml_options["CHKPT_DIR"](epoch),
             )
 
         # Save checkpoint if best validation loss
         if val_loss_via_c < best_val_loss:
             best_val_loss = val_loss_via_c
             train_utils.save_checkpoint(
-                model, optimizer, scheduler, val_loss=val_loss_via_c, chkpt_dir=ml_options["CHKPT_DIR"]("best")
+                model,
+                optimizer,
+                scheduler,
+                val_loss=val_loss_via_c,
+                chkpt_dir=ml_options["CHKPT_DIR"]("best"),
             )
 
         # TODO: Early stopping with ReduceLROnPlateau ?

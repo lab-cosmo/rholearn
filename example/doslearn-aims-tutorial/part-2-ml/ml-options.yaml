@@ -13,5 +13,4 @@ TRAIN:
   restart_epoch: null  # epoch of last saved checkpoint, or None for no restart
   val_interval: 1  # validate every x intervals
   log_interval: 200  # epoch interval at which to log metrics
-  checkpoint_interval: 1000  # save model and optimizer state every x intervals
-
+  checkpoint_interval: 100  # save model and optimizer state every x intervals

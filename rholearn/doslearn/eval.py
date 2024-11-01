@@ -25,9 +25,9 @@ def eval():
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
         frame_idxs = None
-    # Load all the frames 
+    # Load all the frames
     all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-    
+
     if frame_idxs is None:
         frame_idxs = list(range(len(all_frames)))
 
@@ -41,11 +41,6 @@ def eval():
     torch.manual_seed(ml_options["SEED"])
     torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
 
-    # Get a callable to the evaluation subdirectory, parametrized by frame idx
-    rebuild_dir = lambda frame_idx: join(  # noqa: E731
-        ml_options["EVAL_DIR"](ml_options["EVAL"]["eval_epoch"]), f"{frame_idx}"
-    )
-
     # ===== Get the test data =====
 
     io.log(log_path, "Get the test IDs and frames")
@@ -58,7 +53,36 @@ def eval():
     )
     test_frames = [all_frames[A] for A in test_id]
 
-    # TODO: complete
+    # ===== Load model and perform inference =====
+
+    io.log(
+        log_path,
+        f"Load model from checkpoint at epoch {ml_options['EVAL']['eval_epoch']}",
+    )
+    model = torch.load(
+        join(ml_options["CHKPT_DIR"](ml_options["EVAL"]["eval_epoch"]), "model.pt")
+    )
+
+    # Perform inference
+    io.log(log_path, "Perform inference")
+    t0_infer = time.time()
+    test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)  # noqa: F841
+    dt_infer = time.time() - t0_infer
+    io.log(
+        log_path, train_utils.report_dt(dt_infer, "Model inference (on basis) complete")
+    )
+    io.log(log_path, train_utils.report_dt(dt_infer / len(test_id), "   or per frame"))
+
+    # TODO: evaluate some metrics, and save predictions?
+    # ...
+
+    # io.log(
+    #     log_path, f"Mean % NMAE per structure: {torch.mean(torch.tensor(nmaes)):.5f}"
+    # )
+
+    # ===== Finish =====
+    dt_eval = time.time() - t0_eval
+    io.log(log_path, train_utils.report_dt(dt_eval, "Evaluation complete (total time)"))
 
 
 def _get_options():
