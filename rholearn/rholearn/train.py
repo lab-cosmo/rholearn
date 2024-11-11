@@ -1,5 +1,6 @@
 import os
 import time
+from functools import partial
 from os.path import exists, join
 from typing import List
 
@@ -27,19 +28,6 @@ def train():
     t0_setup = time.time()
     dft_options, ml_options = _get_options()
 
-    # Get frame indices we have data for (or a subset if specified)
-    if dft_options.get("IDX_SUBSET") is not None:
-        frame_idxs = dft_options.get("IDX_SUBSET")
-    else:
-        frame_idxs = None
-    # Load all the frames
-    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-
-    if frame_idxs is None:
-        frame_idxs = list(range(len(all_frames)))
-
-    _check_input_settings(dft_options, ml_options, frame_idxs)
-
     # ===== Setup =====
     os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
     log_path = join(ml_options["ML_DIR"], "outputs/train.log")
@@ -50,6 +38,22 @@ def train():
     torch.manual_seed(ml_options["SEED"])
     torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
 
+    # Load all the frames
+    io.log(log_path, "Loading frames")
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
+
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(range(len(all_frames)))
+    
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    _check_input_settings(dft_options, ml_options, frame_idxs)
+
     # ===== Build model, optimizer, and scheduler if applicable =====
 
     # Initialize or load pre-trained model, initialize new optimizer and scheduler
@@ -59,7 +63,6 @@ def train():
 
         if ml_options["PRETRAINED_MODEL"] is None:  # initialize model from scratch
             io.log(log_path, "Initializing model")
-            atom_types = None  # TODO: generalise to subsets
             target_basis = convert.get_global_basis_set(
                 [
                     io.unpickle_dict(
@@ -67,18 +70,18 @@ def train():
                     )
                     for A in frame_idxs
                 ],
-                center_types=atom_types,
+                center_types=None,  # TODO: generalise to subsets?
             )
             model = RhoModel(
-                target_basis=target_basis,
                 spherical_expansion_hypers=ml_options["SPHERICAL_EXPANSION_HYPERS"],
                 n_correlations=ml_options["N_CORRELATIONS"],
+                target_basis=target_basis,
                 layer_norm=ml_options["DESCRIPTOR_LAYER_NORM"],
                 nn_layers=ml_options["NN_LAYERS"],
-                get_selected_atoms=ml_options["GET_SELECTED_ATOMS"],
                 device=torch.device(ml_options["TRAIN"]["device"]),
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 angular_cutoff=ml_options["ANGULAR_CUTOFF"],
+                **dft_options["MASK"],
             )
 
         else:  # Use pre-trained model
@@ -90,17 +93,16 @@ def train():
 
         # Initialize optimizer
         io.log(log_path, "Initializing optimizer")
-        optimizer = torch.optim.Adam(
-            filter(lambda p: p.requires_grad, model.parameters()),
-            **ml_options["OPTIMIZER_ARGS"],
+        optimizer = train_utils.get_optimizer(
+            model, ml_options["OPTIMIZER"], ml_options["OPTIMIZER_ARGS"]
         )
 
         # Initialize scheduler
         scheduler = None
         if ml_options["SCHEDULER_ARGS"] is not None:
-            io.log(log_path, "Using LR scheduler")
-            scheduler = torch.optim.lr_scheduler.StepLR(
-                optimizer, **ml_options["SCHEDULER_ARGS"]
+            io.log(log_path, f"Using LR scheduler: {ml_options['SCHEDULER']}")
+            scheduler = train_utils.get_scheduler(
+                optimizer, ml_options["SCHEDULER"], ml_options["SCHEDULER_ARGS"]
             )
 
         # Initialize the best validation loss
@@ -125,26 +127,31 @@ def train():
 
         # Load optimizer
         io.log(log_path, "Loading optimizer from checkpoint")
-        optimizer = torch.load(
-            join(
-                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "optimizer.pt",
+        optimizer = train_utils.get_optimizer(
+            model, ml_options["OPTIMIZER"], ml_options["OPTIMIZER_ARGS"]
+        )
+        optimizer.load_state_dict(
+            torch.load(
+                join(
+                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                    "optimizer_state_dict.pt",
+                )
             )
         )
 
         # Load scheduler
         scheduler = None
-        if exists(
-            join(
-                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "scheduler.pt",
+        if ml_options["SCHEDULER_ARGS"] is not None:
+            io.log(log_path, f"Loading scheduler from checkpoint: {ml_options['SCHEDULER']}")
+            scheduler = train_utils.get_scheduler(
+                optimizer, ml_options["SCHEDULER"], ml_options["SCHEDULER_ARGS"]
             )
-        ):
-            io.log(log_path, "Loading scheduler from checkpoint")
-            scheduler = torch.load(
-                join(
-                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                    "scheduler.pt",
+            scheduler.load_state_dict(
+                torch.load(
+                    join(
+                        ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                        "scheduler_state_dict.pt",
+                    )
                 )
             )
 
@@ -162,9 +169,9 @@ def train():
     os.remove(join(ml_options["ML_DIR"], "model.pt"))
     io.log(log_path, str(model).replace("\n", f"\n# {utils.timestamp()}"))
 
-    # Initialize loss functions
-    train_loss_fn = RhoLoss(**ml_options["TRAIN_LOSS_FN_ARGS"])
-    val_loss_fn = RhoLoss(**ml_options["VAL_LOSS_FN_ARGS"])
+    # Partially initialize loss function forward methods with the
+    train_loss_fn = RhoLoss(**ml_options["LOSS_FN"]["train"])
+    val_loss_fn = RhoLoss(**ml_options["LOSS_FN"]["val"])
 
     # ===== Create datasets and dataloaders =====
 
@@ -187,18 +194,28 @@ def train():
     )
 
     # Train dataset
-    io.log(log_path, f"Training system ID: {all_subset_id[0]}")
     io.log(log_path, "Build training dataset")
-    train_dataset = train_utils.get_dataset(
-        frames=[all_frames[A] for A in all_subset_id[0]],
-        frame_idxs=list(all_subset_id[0]),
-        model=model,
-        data_names=ml_options["TRAIN_DATA_NAMES"],
-        load_dir=dft_options["PROCESSED_DIR"],
-        overlap_cutoff=ml_options["OVERLAP_CUTOFF"],
-        device=torch.device(ml_options["TRAIN"]["device"]),
-        dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
-    )
+    io.log(log_path, f"    Training system ID: {all_subset_id[0]}")
+    with torch.no_grad():
+        train_dataset = train_utils.get_dataset(
+            frames=[all_frames[A] for A in all_subset_id[0]],
+            frame_idxs=list(all_subset_id[0]),
+            model=model,
+            loss_fn=train_loss_fn,
+            load_dir=dft_options["PROCESSED_DIR"],
+            overlap_cutoff=ml_options["OVERLAP_CUTOFF"],
+            overlap_threshold=ml_options["OVERLAP_THRESHOLD"],
+            device=torch.device(ml_options["TRAIN"]["device"]),
+            dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
+            log_path=log_path,
+        )
+
+    # Report mean sizes
+    io.log(log_path, "Training data sizes (MB):")
+    train_sizes = train_utils.get_mean_data_sizes(train_dataset)
+    assert len(train_sizes) != 0
+    for name, size in train_sizes.items():
+        io.log(log_path, f"    {name}: {size:.3f}")
 
     # Train dataloader
     io.log(log_path, "Build training dataloader")
@@ -215,18 +232,28 @@ def train():
     )
 
     # Validation dataset
-    io.log(log_path, f"Validation system ID: {all_subset_id[1]}")
     io.log(log_path, "Build validation dataset")
-    val_dataset = train_utils.get_dataset(
-        frames=[all_frames[A] for A in all_subset_id[1]],
-        frame_idxs=list(all_subset_id[1]),
-        model=model,
-        data_names=ml_options["VAL_DATA_NAMES"],
-        load_dir=dft_options["PROCESSED_DIR"],
-        overlap_cutoff=None,  # no cutoff for validation
-        device=torch.device(ml_options["TRAIN"]["device"]),
-        dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
-    )
+    io.log(log_path, f"    Validation system ID: {all_subset_id[1]}")
+    with torch.no_grad():
+        val_dataset = train_utils.get_dataset(
+            frames=[all_frames[A] for A in all_subset_id[1]],
+            frame_idxs=list(all_subset_id[1]),
+            model=model,
+            loss_fn=val_loss_fn,
+            load_dir=dft_options["PROCESSED_DIR"],
+            overlap_cutoff=None,  # no cutoff for validation
+            overlap_threshold=None,  # no threshold for validation
+            device=torch.device(ml_options["TRAIN"]["device"]),
+            dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
+            log_path=log_path,
+        )
+
+    # Get mean sizes
+    io.log(log_path, "Validation data sizes (MB):")
+    val_sizes = train_utils.get_mean_data_sizes(val_dataset)
+    assert len(val_sizes) != 0
+    for name, size in val_sizes.items():
+        io.log(log_path, f"    {name}: {size:.3f}")
 
     # Validation dataloader
     io.log(log_path, "Build validation dataloader")
@@ -237,7 +264,7 @@ def train():
             "different_keys": "union",
         },
         dloader_kwargs={
-            "batch_size": ml_options["TRAIN"]["batch_size"],
+            "batch_size": len(val_dataset),
             "shuffle": True,
         },
     )
@@ -250,7 +277,7 @@ def train():
 
     io.log(
         log_path,
-        f"Start training over epochs {epochs[0]} -> {epochs[-1] - 1} (inclusive)",
+        f"Start training over epochs {epochs[0]} -> {epochs[-1]} (inclusive)",
     )
 
     t0_training = time.time()
@@ -300,7 +327,7 @@ def train():
 
             # Step scheduler based on validation loss via c
             if scheduler is not None:
-                if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                if ml_options["SCHEDULER"] == "ReduceLROnPlateau":
                     scheduler.step(val_loss_via_c)
                 else:
                     scheduler.step()
@@ -321,7 +348,7 @@ def train():
             io.log(log_path, log_msg)
 
         # Checkpoint on this epoch
-        if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0 and epoch != 0:
+        if epoch % ml_options["TRAIN"]["checkpoint_interval"] == 0:
             train_utils.save_checkpoint(
                 model,
                 optimizer,
@@ -342,13 +369,14 @@ def train():
             )
 
         # TODO: Early stopping with ReduceLROnPlateau ?
-        # if lr <= ml_options["SCHEDULER_ARGS"]["min_lr"]:
-        #     io.log(log_path, "Early stopping")
-        #     break
+        if lr <= ml_options["MIN_LR"]:
+            io.log(log_path, "Early stopping")
+            break
 
     # Finish
     dt_train = time.time() - t0_training
     io.log(log_path, train_utils.report_dt(dt_train, "Training complete"))
+    io.log(log_path, train_utils.report_dt(dt_train / epoch, "   or per epoch"))
     io.log(log_path, f"Best validation loss: {best_val_loss:.5f}")
 
 

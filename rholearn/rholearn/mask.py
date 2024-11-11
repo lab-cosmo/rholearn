@@ -7,70 +7,139 @@ from typing import Callable, List, Optional, Tuple, Union
 import metatensor
 import metatensor.torch
 import numpy as np
-from chemfiles import Frame
+from chemfiles import Atom, Frame, UnitCell
 
-from rholearn.utils import _dispatch, system
+from rholearn.utils import _dispatch, geometry, system
+
+MASKED_SYSTEM_TYPES = ["slab"]
+
+def get_point_indices_by_region(
+    points: np.ndarray,
+    masked_system_type: str,
+    region: str,
+    **kwargs,
+) -> Tuple[callable]:
+    """
+    For a given set of points (i.e. a 3 x npts shaped array), returns the indices of
+    points belonging to the "active", "buffer", or "masked" ``region`` for a specified
+    ``masked_system_type``.
+
+    The following system types are supported:
+
+    - Slab:
+        - Active atoms are those at: 
+            z >= (- surface_depth)
+
+        - Buffer atoms are those at: 
+            (- surface_depth) > z >= (- surface_depth - buffer_depth)
+        
+        - Masked atoms are those at:
+            z < (- surface_depth - buffer_depth)
+
+    """
+    assert masked_system_type in MASKED_SYSTEM_TYPES, (
+        f"``masked_system_type`` must be one of {MASKED_SYSTEM_TYPES},"
+        f" got: {masked_system_type}"
+    )
+
+    # Slab
+    if masked_system_type == "slab":
+        assert kwargs.get("surface_depth") is not None, (
+            "kwarg ``surface_depth`` must be passed"
+        )
+        assert kwargs.get("buffer_depth") is not None, (
+            "kwarg ``buffer_depth`` must be passed"
+        )
+        if region == "active":
+            return np.where(
+                points[:, 2] >= - kwargs.get("surface_depth")
+            )[0]
+        elif region == "buffer":
+            return np.where(
+                (points[:, 2] < - kwargs.get("surface_depth"))
+                & (points[:, 2] >= - kwargs.get("surface_depth") - kwargs.get("buffer_depth"))
+            )[0]
+        else:
+            assert region == "masked"
+            return np.where(
+                points[:, 2] < - kwargs.get("surface_depth") - kwargs.get("buffer_depth")
+            )[0]
+
+    else:
+        raise ValueError(
+            f"invalid `masked_system_type`: {masked_system_type}."
+            f" Must be one of {MASKED_SYSTEM_TYPES}"
+        )
+
+    return get_coords
 
 
-def get_atom_idxs_by_region(
+def retype_frame(
     frame: Frame,
-    get_active_coords: Callable,
-    get_buffer_coords: Callable,
-    get_masked_coords: Callable,
-) -> Tuple[np.ndarray]:
+    masked_system_type: str,
+    **kwargs
+) -> Frame:
     """
-    Using the callable functions ``get_active_coords``, ``get_buffer_coords``, and
-    ``get_masked_coords`` determines the indices in each of 'active', 'buffer', and
-    'masked' regions of the input system in ``frame``. Returns these grouped indices,
-    respectively.
+    Retypes a Frame. Supported system types are:
 
-    The callable functions should take a :py:class:`chemfiles.Frame` object as input and
-    return a boolean array indicating whether each atom is in the active or buffer
+        - "slab"
 
-    Masked region atoms are assumed to be those that are neither in the active nor
-    buffer regions.
+    Active atoms are not retyped. Buffer atoms are retyped to carry a "_1" suffix.
+    Masked atoms are retyped to carry a "_2" suffix.
+
+    How atoms are categorised by region is controlled by ``**kwargs``.
     """
-    # Get active and buffer atom indices
-    idxs_active = get_active_coords(frame.positions)
-    idxs_buffer = get_buffer_coords(frame.positions)
-    idxs_masked = get_masked_coords(frame.positions)
+    if isinstance(frame, list):
+        return [retype_frame(f, masked_system_type, **kwargs) for f in frame]
 
-    # Check zero intersections
-    assert len(np.intersect1d(idxs_active, idxs_buffer)) == 0
-    assert len(np.intersect1d(idxs_active, idxs_masked)) == 0
+    # Re-type the buffer atoms
+    frame = retype_atoms(
+        frame,
+        indices=get_point_indices_by_region(
+            frame.positions, masked_system_type, "buffer", **kwargs
+        ),
+        type_suffix="_1",
+    )
 
-    return idxs_active, idxs_buffer, idxs_masked
+    # Re-type masked atoms
+    frame = retype_atoms(
+        frame,
+        indices=get_point_indices_by_region(
+            frame.positions, masked_system_type, "masked", **kwargs
+        ),
+        type_suffix="_2",
+    )
+
+    return frame
 
 
-def retype_masked_atoms(
-    frame: Union[Frame, List[Frame]],
-    get_masked_coords: Callable,
+def retype_atoms(
+    frame: Frame,
+    indices: List[int],
     type_suffix: Optional[str] = None,
 ) -> Frame:
     """
-    For each frame passed in ``frame``, identifies the atoms to be masked and retypes
-    them.
-
-    The idxs of the masked atoms are returned by the callable ``get_masked_coords``.
-    Retyping involves modifying the `name` and `type` attributes of each
-    :py:class:`chemfiles.Atom` object to be masked by suffixing with a "_1".
+    For each frame passed in ``frame``, retypes the atoms whose indices are passed in
+    `indices`. Retyping involves modifying the `name` and `type` attributes of each
+    :py:class:`chemfiles.Atom` object to be retyped by suffixing with `type_suffix`, or
+    "_1" if not specified.
     """
     # Use "_1" by default for the type suffix
     if type_suffix is None:
         type_suffix = "_1"
 
-    if isinstance(frame, list):
-        return [retype_masked_atoms(f, get_masked_coords, type_suffix) for f in frame]
-
-    # Get the indices of the various species
-    idxs_masked = get_masked_coords(frame.positions)
-
+    retyped_frame = Frame()
+    retyped_frame.cell = UnitCell(frame.cell.matrix)
     for i, atom in enumerate(frame.atoms):
-        if i in idxs_masked:
-            atom.name += type_suffix
-            atom.type += type_suffix
+        atom_name = atom.name 
+        atom_type = atom.type
+        if i in indices:
+            atom_name += type_suffix
+            atom_type += type_suffix
+        
+        retyped_frame.add_atom(Atom(name=atom_name, type=atom_type), frame.positions[i])
 
-    return frame
+    return retyped_frame
 
 
 def mask_coeff_vector(
@@ -101,7 +170,7 @@ def mask_coeff_vector(
     coeff_vector_masked = mts.slice(
         coeff_vector,
         axis="samples",
-        labels=mts.Labels(
+        selection=mts.Labels(
             names=["atom"],
             values=_dispatch.array(atom_idxs_to_keep, backend).reshape(-1, 1),
         ),
@@ -190,7 +259,7 @@ def mask_overlap_matrix(
     overlap_matrix_masked = mts.slice(
         overlap_matrix,
         axis="samples",
-        labels=mts.Labels(
+        selection=mts.Labels(
             names=["atom_1"],
             values=_dispatch.array(atom_idxs_to_keep, backend).reshape(-1, 1),
         ),
@@ -198,7 +267,7 @@ def mask_overlap_matrix(
     overlap_matrix_masked = mts.slice(
         overlap_matrix_masked,
         axis="samples",
-        labels=mts.Labels(
+        selection=mts.Labels(
             names=["atom_2"],
             values=_dispatch.array(atom_idxs_to_keep, backend).reshape(-1, 1),
         ),
@@ -214,18 +283,26 @@ def cutoff_overlap_matrix(
     frames: List[Frame],
     frame_idxs: List[int],
     overlap_matrix: Union[metatensor.TensorMap, metatensor.torch.TensorMap],
-    cutoff: float,
+    cutoff: Optional[float] = None,
+    radii: Optional[dict] = None,
     drop_empty_blocks: bool = False,
     backend: Optional[str] = "numpy",
 ) -> Union[metatensor.TensorMap, metatensor.torch.TensorMap]:
     """
-    Takes a TensorMap corresponding to a matrix of overlaps and slices it to only
-    contain sample indices for pairs of atoms that are within the specified ``cutoff``.
-    Any blocks that have been sliced to zero samples can be dropped. Returns the masked
-    TensorMap.
-
-    Assumes the pairs of atomic centers are in the samples and named as "atom_1" and
-    "atom_2".
+    Takes a TensorMap corresponding to a matrix of overlaps for each atom pair (where i1
+    < i2) and slices it according to various criteria:
+    
+        - if ``cutoff`` is specified, removes overlaps between atoms further than this
+          away from each other
+        - alternatively (only defined in absense of ``cutoff``), ``radii`` can be passed
+          to specify the actual basis function radii of each atomic type in ``frame``,
+          and uses this as atomic type dependent cutoff. Must only be passed if data for
+          one structure is passed.
+    
+    Any blocks that have been sliced to zero samples can be dropped if
+    ``drop_empty_blocks`` is true.
+    
+    Returns the masked TensorMap.
     """
     # Assign backend
     if backend == "numpy":
@@ -235,18 +312,161 @@ def cutoff_overlap_matrix(
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
+    # First compute the neighbor list, within the specified `cutoff` or the
+    # twice the max radius in `radii`.
+    if cutoff is None:
+        assert radii is not None, "must specify either `cutoff` or `radii`"
+        assert len(frames) == 1 and len(frame_idxs) == 1, (
+            "If passing `radii`, only one frame should be passed"
+        )
+        cutoff = 2 * max(list(radii.values()))
+    else:
+        assert radii is None, "cannot specify both `cutoff` and `radii`"
+
+    neighborlist = geometry.get_neighbor_list(
+        frames, frame_idxs, cutoff=cutoff, backend=backend
+    )
+
+    # If `radii` is passed, slice the neighborlist to account for 
+    # max radii of each chemical species
+    if radii is not None:
+        assert len(frames) == 1
+        frame = frames[0]
+
+        keep_idxs = []
+        atom_types = system.get_types(frame)
+        for label_idx, (_, i, j) in enumerate(neighborlist):
+            # Check that this atom type is reported in `radii`. If not, this atom may
+            # have an empty basis set definition, thus having no overlap.
+            if atom_types[i] not in radii or atom_types[j] not in radii:
+                continue
+            if (
+                frame.distance(i, j) <= radii[atom_types[i]] + radii[atom_types[j]]
+            ):
+                keep_idxs.append(label_idx)
+
+        neighborlist = mts.Labels(
+            names=neighborlist.names,
+            values=_dispatch.int_array(
+                [
+                    [elem for elem in neighborlist.values[label_idx]]
+                    for label_idx in keep_idxs
+                ],
+                backend=backend,
+            )
+        )
+
+    # Now slice the overlap matrix based on the neighbor list
     overlap_matrix_masked = mts.slice(
         overlap_matrix,
         axis="samples",
-        labels=system.get_neighbor_list(
-            frames, frame_idxs, cutoff=cutoff, backend=backend
-        ),
+        selection=neighborlist,
     )
 
     if drop_empty_blocks:
         overlap_matrix_masked = _drop_empty_blocks(overlap_matrix_masked, backend)
 
     return overlap_matrix_masked
+
+
+def sparsify_overlap_matrix(
+    overlap_matrix: Union[metatensor.TensorMap, metatensor.torch.TensorMap],
+    sparsity_threshold: float,
+    drop_empty_blocks: bool = False,
+    backend: str = "numpy",
+) -> Union[metatensor.TensorMap, metatensor.torch.TensorMap]:
+    """
+    For each sample in the input ``overlap`` matrix (i.e. atom pair), drops the sample
+    if the absolute values of all overlaps between basis functions on these atoms is
+    less than ``sparsity_threshold``.
+
+    Any empty blocks that remain after this can be dropped by setting
+    ``drop_empty_blocks`` to true.
+    """
+    # Assign backend
+    if backend == "numpy":
+        mts = metatensor
+    elif backend == "torch":
+        mts = metatensor.torch
+    else:
+        raise ValueError(f"Unknown backend: {backend}")
+
+    new_blocks = []
+    for block in overlap_matrix:
+
+        # Discard any samples where all the absolute overlap values are less than
+        # the specified threshold.
+        samples_mask = [
+            bool(
+                _dispatch.any(
+                    _dispatch.abs(sample, backend) >= sparsity_threshold,
+                    backend
+                )
+            )
+            for sample in block.values
+        ]
+        new_blocks.append(
+            mts.TensorBlock(
+                samples=mts.Labels(
+                    names=block.samples.names,
+                    values=_dispatch.int_array(
+                        block.samples.values[samples_mask],
+                        backend,
+                    ),
+                ),
+                components=block.components,
+                properties=block.properties,
+                values=block.values[samples_mask],
+            )
+        )
+
+    return mts.TensorMap(overlap_matrix.keys, new_blocks)
+
+
+def drop_non_active_overlaps(
+    frame: Frame,
+    masked_system_type: str,
+    overlap_matrix: Union[metatensor.TensorMap, metatensor.torch.TensorMap],
+    backend: Optional[str] = "numpy",
+    **kwargs,
+) -> Union[metatensor.TensorMap, metatensor.torch.TensorMap]:
+    """
+    For the given `frame` and `masked_system_type`, drops the overlaps between atom
+    pairs that are both atoms in non-active regions, i.e. buffer or masked atoms.
+    """
+    # Assign backend
+    if backend == "numpy":
+        mts = metatensor
+    elif backend == "torch":
+        mts = metatensor.torch
+    else:
+        raise ValueError(f"Unknown backend: {backend}")
+
+    # Find the indices of atoms in the active region
+    active_atom_idxs = get_point_indices_by_region(
+        frame.positions, masked_system_type, "active", **kwargs
+    )
+
+    new_blocks = []
+    for block in overlap_matrix:
+        # Keep only the samples where either atom i or j is in the active atoms
+        samples_mask = [
+            sample_i
+            for sample_i, (A, i, j) in enumerate(block.samples)
+            if i in active_atom_idxs or j in active_atom_idxs
+        ]
+        new_blocks.append(
+            mts.TensorBlock(
+                samples=mts.Labels(block.samples.names, block.samples.values[samples_mask]),
+                components=block.components,
+                properties=block.properties,
+                values=block.values[samples_mask],
+            )
+        )
+
+    overlap_matrix = mts.TensorMap(overlap_matrix.keys, new_blocks)
+
+    return _drop_empty_blocks(overlap_matrix, backend)
 
 
 def _build_zeros_tensor(
@@ -271,7 +491,7 @@ def _build_zeros_tensor(
     # Build the zeros tensor
     blocks = []
     for key, props in zip(in_keys, properties):
-        o3_lambda, center_type = key
+        o3_lambda, _, center_type = key
         ref_atom_sym = system.atomic_number_to_atomic_symbol(center_type)
         samples = mts.Labels(
             names=["system", "atom"],

@@ -1,7 +1,6 @@
 """
 Module containing the global net class `RhoModel`.
 """
-
 from typing import Callable, List, Optional, Tuple, Union
 
 import metatensor.torch as mts
@@ -23,17 +22,19 @@ class _DescriptorCalculator(torch.nn.Module):
 
     def __init__(
         self,
-        atom_types: List[int],
+        center_types: List[int],
         spherical_expansion_hypers: dict,
         n_correlations: int,
         dtype: torch.dtype,
         device: torch.device,
         angular_cutoff: Optional[int] = None,
+        masked_system_type: Optional[str] = None,
+        **mask_kwargs,
     ) -> None:
 
         super().__init__()
 
-        self._atom_types = atom_types
+        self._center_types = center_types
         self._spherical_expansion_hypers = spherical_expansion_hypers
 
         self._spherical_expansion = SphericalExpansion(**spherical_expansion_hypers)
@@ -57,31 +58,99 @@ class _DescriptorCalculator(torch.nn.Module):
             dtype=dtype,
             device=device,
         )
+        self._masked_system_type = masked_system_type
+        self._mask_kwargs = mask_kwargs
 
     def compute_density(
         self,
         frames: List[Frame],
-        selected_samples: Optional[mts.Labels] = None,
+        mask_system: bool,
     ) -> mts.TensorMap:
         """
         Computes the density for the given frames.
 
-        If ``selected_samples`` is passed, the density :py:class:`TensorMap` is
-        re-indexed along the "system" dimension to match the indices in
-        ``selected_samples``.
+        If using a masked system type, only active and buffer region atoms are computed.
         """
-        # Compute Spherical Expansion
-        density = self._spherical_expansion.compute(
-            system.frame_to_atomistic_system(frames),
-            selected_samples=selected_samples,
-        )
+        # If using a masked system, compute separate densities for active and buffer
+        # region atoms and combine the descriptors. This ensure the neighbor types are
+        # the 'normal' ones, i.e. those in self._center_types, but that any buffer atoms
+        # present are re-typed and exist as their own central species.
+        if mask_system:
+
+            # Get selected samples for the active and buffer atoms
+            active_atom_samples = []
+            buffer_atom_samples = []
+            for A, frame in enumerate(frames):
+                active_atom_idxs = mask.get_point_indices_by_region(
+                    points=frame.positions,
+                    masked_system_type=self._masked_system_type,
+                    region="active",
+                    **self._mask_kwargs,
+                )
+                buffer_atom_idxs = mask.get_point_indices_by_region(
+                    points=frame.positions,
+                    masked_system_type=self._masked_system_type,
+                    region="buffer",
+                    **self._mask_kwargs,
+                )
+                for i in active_atom_idxs:
+                    active_atom_samples.extend([A, i])
+                for i in buffer_atom_idxs:
+                    buffer_atom_samples.extend([A, i])
+            
+            # Compute Spherical Expansion for atoms in the active region
+            density_active = self._spherical_expansion.compute(
+                system.frame_to_atomistic_system(frames),
+                selected_samples=mts.Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(active_atom_samples, dtype=torch.int64).reshape(-1, 2),
+                ),
+            )
+            # Compute Spherical Expansion for atoms in the buffer region
+            density_buffer = self._spherical_expansion.compute(
+                system.frame_to_atomistic_system(frames),
+                selected_samples=mts.Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(buffer_atom_samples, dtype=torch.int64).reshape(-1, 2),
+                ),
+            )
+            # Re-type the center species, i.e. for carbon 6 -> 1006, for gold 79 -> 1079
+            new_key_vals = density_buffer.keys.values
+            new_key_vals[:, density_buffer.keys.names.index("center_type")] += 1000
+            density_buffer = mts.TensorMap(
+                keys=mts.Labels(
+                    names=density_buffer.keys.names,
+                    values=new_key_vals,
+                ),
+                blocks=density_buffer.blocks(),
+            )
+
+            # Join the TensorMaps for the active and buffer regions
+            density = mts.join(
+                [density_active, density_buffer],
+                "samples",
+                remove_tensor_name=True,
+                different_keys="union",
+            )
+            density = mask._drop_empty_blocks(density, "torch")
+
+        else:
+            # Compute Spherical Expansion for the normal system
+            density = self._spherical_expansion.compute(
+                system.frame_to_atomistic_system(frames),
+            )
 
         # Move 'neighbor_type' to properties, accounting for neighbor types not
-        # necessarily present in the frames but present globally
+        # necessarily present in the frames but present globally. In the case of a
+        # masked system, these should still only be the standard atom types, not the
+        # buffer region atom types.
         density = density.keys_to_properties(
             keys_to_move=mts.Labels(
                 names=["neighbor_type"],
-                values=torch.tensor(self._atom_types).reshape(-1, 1),
+                values=torch.tensor(
+                    [a for a in self._center_types if a // 1000 == 0],
+                    dtype=torch.int64,
+                ).reshape(-1, 1),
             )
         )
 
@@ -90,9 +159,9 @@ class _DescriptorCalculator(torch.nn.Module):
     def compute(
         self,
         frames: List[Frame],
-        selected_samples: Optional[mts.Labels] = None,
         selected_keys: Optional[mts.Labels] = None,
         compute_metadata: bool = False,
+        mask_system: bool = False,
     ) -> mts.TensorMap:
         """
         Takes as input a :py:class:`chemfiles.Frame` frames. Computes an equivariant
@@ -103,24 +172,28 @@ class _DescriptorCalculator(torch.nn.Module):
 
         The steps are as follows:
 
-        1) Computes a density using the SphericalExpansion calculator, passing
-           ``selected_samples`` to select atom subsets for each frame.
+        1) Computes a density using the SphericalExpansion calculator. In the case of a
+           masked system type, active and (retyped) buffer region atoms are computed.
         2) Moves the 'neighbor_type' key to properties, ensuring consistent properties
-           for the global atom types stored in the class' ``_atom_types`` attribute.
+           for the global atom types stored in the class' ``_center_types`` attribute.
         3) Computes the lambda-SOAP descriptor using the DensityCorrelations calculator.
         4) Removes the redundant 'o3_sigma' key name from the descriptor.
         5) Drops any blocks whose keys are not found in ``selected_keys``.
 
         :param frames: a list of :py:class:`chemfiles.Frame` object to compute
             descriptors for.
-        :param selected_samples: a :py:class:`mts.Labels` object containing the selected
-            samples to compute the descriptor for. If None, all samples are present in
-            ``frames`` are computed.
         :param selected_keys: a :py:class:`mts.Labels` object containing the keys to
             select from the descriptor. If None, all keys are computed.
         """
+        if mask_system is True:
+            if self._masked_system_type is None:
+                raise ValueError(
+                    "cannot compute descriptor for a masked system if ``masked_system_type``"
+                    " not passed to the constructor"
+                )
+
         # Compute density
-        density = self.compute_density(frames, selected_samples)
+        density = self.compute_density(frames, mask_system=mask_system)
 
         # Compute lambda-SOAP
         if compute_metadata:
@@ -148,29 +221,31 @@ class _DescriptorCalculator(torch.nn.Module):
     def forward(
         self,
         frames: List[Frame],
-        selected_samples: Optional[mts.Labels] = None,
         selected_keys: Optional[mts.Labels] = None,
         compute_metadata: bool = False,
+        mask_system: bool = None,
     ) -> Union[mts.TensorMap, List[mts.TensorMap]]:
         """
         Calls the :py:meth:`compute` method.
         """
         return self.compute(
             frames=frames,
-            selected_samples=selected_samples,
             selected_keys=selected_keys,
             compute_metadata=compute_metadata,
+            mask_system=mask_system,
         )
 
     def __repr__(self) -> str:
         return (
             "DescriptorCalculator("
-            f"\n\tatom_types={self._atom_types},"
+            f"\n\tcenter_types={self._center_types},"
             f"\n\tspherical_expansion_hypers={self._spherical_expansion_hypers},"
             f"\n\tn_correlations={self._n_correlations},"
             f"\n\tangular_cutoff={self._angular_cutoff},"
             f"\n\tdtype={self._dtype},"
             f"\n\tdevice={self._device},"
+            f"\n\tmasked_system_type={self._masked_system_type},"
+            f"\n\tmask_kwargs={self._mask_kwargs},"
             "\n)"
         )
 
@@ -179,6 +254,12 @@ class RhoModel(torch.nn.Module):
     """
     Global model class for predicting a target field on an equivariant basis.
 
+    :param spherical_expansion_hypers: `dict`, the hypers for the spherical expansion
+        calculator.
+    :param n_correlations: `int`, the number of Clebsch Gordan tensor products to take
+        of the spherical expansion. This builds the body order of the equivariant
+        descriptor. ``n_correlations=1`` forms an equivariant power spectrum
+        ("lambda-SOAP)", ``n_correlations=2`` forms an equivariant bispectrum, etc.
     :param target_basis: :py:class:`Labels` object containing the basis set definition.
         This must contain 3 dimensions, respectively named: ["o3_lambda", "center_type",
         "nmax"]. This indicates the number of radial functions for each combination of
@@ -186,40 +267,30 @@ class RhoModel(torch.nn.Module):
         each atom type that the model can predict on. Any systems or systems passed to
         :py:meth:`forward` or :py:meth:`predict` respectively must contain only atoms of
         these types.
-    :param spherical_expansion_hypers: `dict`, the hypers for the spherical expansion
-        calculator.
-    :param n_correlations: `int`, the number of Clebsch Gordan tensor products to take
-        of the spherical expansion. This builds the body order of the equivariant
-        descriptor. ``n_correlations=1`` forms an equivariant power spectrum
-        ("lambda-SOAP)", ``n_correlations=2`` forms an equivariant bispectrum, etc.
-    :param net: `Callable`, a callable function containing the NN architecture as a
-        `torch.nn.Module`. Has input arguments that correspond only to model metadata,
-        i.e. `in_keys`, `invariant_key_idxs`,`in_properties`, and `out_properties`, and
-        returns a fully initialized `torch.nn.Module` once called.
-    :param get_selected_atoms: `Callable`, an optional callable function that returns
-        the indices of atoms to compute descriptors for. The callable should take a
-        single :py:class:`chemfiles.Frame` object as input and return a list of
-        integers.
+    :param layer_norm: 
+    :param nn_layers:
     :param dtype: `torch.dtype`, the data type for the model.
     :param device: `torch.device`, the device for the model.
     :param angular_cutoff: `int`, the maximum angular momentum to compute in
         intermediate Clebsch Gordan tensor products. If None, the maximum angular
         momentum is set to `spherical_expansion_hypers["max_angular"] * (n_correlations
         + 1)`.
+    :param masked_system_type: 
     """
 
     def __init__(
         self,
         *,
-        target_basis: mts.Labels,
         spherical_expansion_hypers: dict,
         n_correlations: int,
+        target_basis: mts.Labels,
         layer_norm: bool = False,
         nn_layers: Optional[List[dict]] = None,
-        get_selected_atoms: Optional[Callable] = None,
         dtype: torch.dtype = torch.float64,
         device: torch.device = "cpu",
         angular_cutoff: Optional[int] = None,
+        masked_system_type: Optional[str] = None,
+        **mask_kwargs,
     ) -> None:
 
         super().__init__()
@@ -232,7 +303,7 @@ class RhoModel(torch.nn.Module):
         self._target_basis = target_basis
 
         # Set the atom types
-        self._atom_types = [
+        self._center_types = [
             i.item()
             for i in torch.unique(
                 torch.tensor(target_basis.column("center_type")), sorted=True
@@ -241,20 +312,21 @@ class RhoModel(torch.nn.Module):
 
         # Set descriptor calculator
         self._descriptor_calculator = _DescriptorCalculator(
-            atom_types=self._atom_types,
+            center_types=self._center_types,
             spherical_expansion_hypers=spherical_expansion_hypers,
             n_correlations=n_correlations,
             dtype=dtype,
             device=device,
             angular_cutoff=angular_cutoff,
+            masked_system_type=masked_system_type,
+            **mask_kwargs,
         )
+        self._masked_system_type = masked_system_type
+        self._mask_kwargs = mask_kwargs
 
         # Set metadata
         self._in_keys = _target_basis_set_to_in_keys(self._target_basis)
-        self._invariant_key_idxs = [
-            i for i, key in enumerate(self._in_keys) if key["o3_lambda"] == 0
-        ]
-        self._in_properties = _atom_types_to_descriptor_basis_in_properties(
+        self._in_properties = _center_types_to_descriptor_basis_in_properties(
             self._in_keys,
             self._descriptor_calculator,
         )
@@ -265,9 +337,6 @@ class RhoModel(torch.nn.Module):
 
         # Set NN
         self._set_net(layer_norm, nn_layers)
-
-        # For learning on a subset of atoms
-        self._get_selected_atoms = get_selected_atoms
 
     def _set_net(
         self, layer_norm: bool = False, nn_layers: Optional[List[callable]] = None
@@ -288,7 +357,6 @@ class RhoModel(torch.nn.Module):
             init_layers.append(
                 nn.InvariantLayerNorm(
                     in_keys=self._in_keys,
-                    invariant_key_idxs=self._invariant_key_idxs,
                     in_features=[
                         len(in_props)
                         for key, in_props in zip(self._in_keys, self._in_properties)
@@ -302,9 +370,12 @@ class RhoModel(torch.nn.Module):
             init_layers.append(
                 nn.EquivariantLinear(
                     in_keys=self._in_keys,
-                    invariant_key_idxs=self._invariant_key_idxs,
                     in_features=[len(in_props) for in_props in self._in_properties],
                     out_properties=self._out_properties,
+                    invariant_keys=mts.Labels(
+                        names=["o3_lambda", "o3_sigma"],
+                        values=torch.tensor([0, 1], dtype=torch.int64).reshape(-1, 2),
+                    ),
                     bias=True,
                     dtype=self._dtype,
                     device=self._device,
@@ -318,7 +389,6 @@ class RhoModel(torch.nn.Module):
                 args.update(
                     dict(
                         in_keys=self._in_keys,
-                        invariant_key_idxs=self._invariant_key_idxs,
                     )
                 )
                 if module_name == "EquivariantLinear":
@@ -357,32 +427,6 @@ class RhoModel(torch.nn.Module):
         # Build the sequential NN
         self._net = nn.Sequential(self._in_keys, *init_layers)
 
-    def _get_selected_samples(self, frames: List[Frame]) -> mts.Labels:
-        """
-        Returns a :py:class:`Labels` object corresponding to the selected samples for
-        the given system(s).
-
-        This uses the optional callable function ``get_selected_atoms`` passed to the
-        constructor and assigned to the ``_get_selected_atoms`` attribute. If not
-        passed, returns None.
-
-        Note that the "system" index is included in the samples, and matches the numeric
-        indexing of the system passed in ``system``, from {0, ..., len(system) - 1}
-        (inclusive).
-        """
-        if self._get_selected_atoms is None:
-            return None
-
-        selected_samples_values: List[int] = []
-        for A, frame in enumerate(frames):
-            selected_samples_values.extend(
-                [[A, i] for i in self._get_selected_atoms(frame)]
-            )
-
-        return mts.Labels(
-            names=["system", "atom"],
-            values=torch.tensor(selected_samples_values, dtype=torch.int32),
-        )
 
     def _check_descriptor_metadata(self, descriptor: mts.TensorMap) -> None:
         """
@@ -422,8 +466,9 @@ class RhoModel(torch.nn.Module):
         # Compute descriptor
         descriptor = self._descriptor_calculator(
             frames=frames,
-            selected_samples=self._get_selected_samples(frames),
             selected_keys=self._in_keys,
+            compute_metadata=False,
+            mask_system=self._masked_system_type is not None,
         )
 
         # Re-index "system" metadata along samples axis
@@ -524,14 +569,20 @@ class RhoModel(torch.nn.Module):
             check_metadata=check_metadata,
         )
 
-        # Drop blocks that don't correspond to the atom types in the respective frames
-        if split_by_frame:
-            return [
-                train_utils.drop_blocks_for_nonpresent_types(frame, pred)
-                for frame, pred in zip(frames, prediction)
-            ]
+        return prediction
 
-        return train_utils.drop_blocks_for_nonpresent_types(frames, prediction)
+        # # Drop blocks that don't correspond to the atom types in the respective frames
+        # if split_by_frame:
+        #     return [
+        #         train_utils.drop_blocks_for_nonpresent_types(
+        #             frame, pred, self._masked_system_type, **self._mask_kwargs
+        #         )
+        #         for frame, pred in zip(frames, prediction)
+        #     ]
+
+        # return train_utils.drop_blocks_for_nonpresent_types(
+        #     frames, prediction, self._masked_system_type, **self._mask_kwargs
+        # )
 
     def predict(
         self,
@@ -569,7 +620,7 @@ class RhoModel(torch.nn.Module):
             )
 
             # Return if no un-masking is necessary
-            if self._get_selected_atoms is None:
+            if self._masked_system_type is None:
                 return predictions
 
             # Unmask the predictions if necessary
@@ -577,7 +628,9 @@ class RhoModel(torch.nn.Module):
             for frame, frame_idx, pred in zip(frames, frame_idxs, predictions):
                 pred_unmasked = mask.unmask_coeff_vector(
                     coeff_vector=pred,
-                    frame=frame,
+                    frame=mask.retype_frame(
+                        frame, self._masked_system_type, **self._mask_kwargs
+                    ),
                     frame_idx=frame_idx,
                     in_keys=self._in_keys,
                     properties=self._out_properties,
@@ -644,29 +697,34 @@ def _target_basis_set_to_in_keys(target_basis: mts.Labels) -> mts.Labels:
     )
 
 
-def _atom_types_to_descriptor_basis_in_properties(
+def _center_types_to_descriptor_basis_in_properties(
     in_keys: mts.Labels,
     descriptor_calculator: torch.nn.Module,
 ) -> List[mts.Labels]:
     """
     Builds a dummy :py:class:`chemfiles.Frame` object from the global atom types in
-    `descriptor_calculator._atom_types`, computes the descriptor for it, and extracts
+    `descriptor_calculator._center_types`, computes the descriptor for it, and extracts
     the properties for each block indexed by the keys in `in_keys`.
+
+    For masked systems, the neighbor types are just the standard atom types, i.e. 1 and
+    6 for H and C, not 1006 for pseudo-C.
     """
-    atom_types = descriptor_calculator._atom_types
-    dummy_frame = Frame()
-    for i, atom_type in enumerate(atom_types):
+    dummy_frames = []
+    for center_type in descriptor_calculator._center_types:
+        dummy_frame = Frame()
         dummy_frame.add_atom(
             Atom(
-                name=system.atomic_number_to_atomic_symbol(int(atom_type)),
-                type=system.atomic_number_to_atomic_symbol(int(atom_type)),
+                name=system.atomic_number_to_atomic_symbol(int(center_type)),
+                type=system.atomic_number_to_atomic_symbol(int(center_type)),
             ),
-            position=[0, 0, 10 * i],
+            position=[0, 0, 0],
         )
+        dummy_frames.append(dummy_frame)
     descriptor = descriptor_calculator(
-        frames=[dummy_frame],
+        frames=dummy_frames,
         selected_keys=in_keys,
         compute_metadata=True,
+        mask_system=False,
     )
 
     return [descriptor[key].properties for key in in_keys]

@@ -76,19 +76,17 @@ def test_full_loss_via_c_via_w_equiv(A: int):
     ovlps_full = mts.load(join(DATA_DIR_1(A), "ri_ovlp.npz"))
 
     # Init loss fn
-    loss_fn = RhoLoss(
-        orthogonal=False,
-        truncated=False,
-    )
+    loss_fn_via_c = RhoLoss(solver="nonorthogonal_via_c")
+    loss_fn_via_w = RhoLoss(solver="nonorthogonal_via_w")
 
     # Calculate losses via c and w
-    via_c = loss_fn(
+    via_c = loss_fn_via_c(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         target_w=None,
         overlap=ovlps_full,
     )
-    via_w = loss_fn(
+    via_w = loss_fn_via_w(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         target_w=ri_projs,
@@ -153,18 +151,16 @@ def test_full_loss_and_grid_mse_equivalent():
     )
 
     # Init loss fn
-    loss_fn = RhoLoss(
-        orthogonal=False,
-        truncated=False,
-    )
+    loss_fn_via_c = RhoLoss(solver="nonorthogonal_via_c")
+    loss_fn_via_w = RhoLoss(solver="nonorthogonal_via_w")
 
     # Calculate losses via c
-    loss_via_c = loss_fn(
+    loss_via_c = loss_fn_via_c(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         overlap=ovlps_full,
     )
-    loss_via_w = loss_fn(
+    loss_via_w = loss_fn_via_w(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         target_w=ri_projs,
@@ -242,23 +238,15 @@ def test_weight_update_truncated_loss(A: int):
     )
     ovlp = mts.load(join(DATA_DIR_1(A), "ri_ovlp.npz"))
 
-    # Initialize the loss functions
-    loss_fn_1 = RhoLoss(
-        orthogonal=False,
-        truncated=False,
-    )
-    loss_fn_2 = RhoLoss(
-        orthogonal=False,
-        truncated=True,
-    )
-
     # Perform a single training step for each model/loss_fn pair
-    for model, loss_fn in zip([linear_1, linear_2], [loss_fn_1, loss_fn_2]):
+    for model, truncated in zip([linear_1, linear_2], [True, False]):
 
         optim = torch.optim.AdamW(model.parameters(), lr=1e-3)  # init optimizer
         optim.zero_grad()  # zero the gradients
         ml_coeffs = model(random_descriptor)  # forward pass
         ml_coeffs = convert.coeff_vector_to_sparse_by_center_type(ml_coeffs, "torch")
+        
+        loss_fn = RhoLoss(solver="nonorthogonal_via_w", truncated=truncated)
         loss_val = loss_fn(
             input_c=ml_coeffs,
             target_c=ri_coeffs,
@@ -318,18 +306,9 @@ def test_batchable_loss_list_and_joined_equivalent(A: int):
     ]
 
     # Init loss fn
-    loss_fn_coeff = RhoLoss(
-        orthogonal=True,
-        normalized=True,
-    )
-    loss_fn_full = RhoLoss(
-        orthogonal=False,
-        truncated=False,
-    )
-    loss_fn_cutoff = RhoLoss(
-        orthogonal=False,
-        truncated=False,
-    )
+    loss_fn_orth = RhoLoss(solver="orthogonal")
+    loss_fn_via_c = RhoLoss(solver="nonorthogonal_via_c")
+    loss_fn_via_w = RhoLoss(solver="nonorthogonal_via_w")
 
     # 1) Evaluate by iteratively calling loss fn
     loss_by_iteration = {
@@ -342,24 +321,27 @@ def test_batchable_loss_list_and_joined_equivalent(A: int):
     for c_ri, c_ml, w_ri, ovlp_cutoff, ovlp_full in zip(
         ri_coeffs, ml_coeffs, ri_projs, overlaps_cutoff, overlaps_full
     ):
-        loss_by_iteration["coeff"] += loss_fn_coeff(input_c=c_ml, target_c=c_ri)
-        loss_by_iteration["cutoff_via_c"] += loss_fn_cutoff(
+        loss_by_iteration["coeff"] += loss_fn_orth(
+            input_c=c_ml,
+            target_c=c_ri,
+        )
+        loss_by_iteration["cutoff_via_c"] += loss_fn_via_c(
             input_c=c_ml,
             target_c=c_ri,
             overlap=ovlp_cutoff,
         )
-        loss_by_iteration["cutoff_via_w"] += loss_fn_cutoff(
+        loss_by_iteration["cutoff_via_w"] += loss_fn_via_w(
             input_c=c_ml,
             target_c=c_ri,
             target_w=w_ri,
             overlap=ovlp_cutoff,
         )
-        loss_by_iteration["full_via_c"] += loss_fn_full(
+        loss_by_iteration["full_via_c"] += loss_fn_via_c(
             input_c=c_ml,
             target_c=c_ri,
             overlap=ovlp_full,
         )
-        loss_by_iteration["full_via_w"] += loss_fn_full(
+        loss_by_iteration["full_via_w"] += loss_fn_via_w(
             input_c=c_ml,
             target_c=c_ri,
             target_w=w_ri,
@@ -374,24 +356,27 @@ def test_batchable_loss_list_and_joined_equivalent(A: int):
     ovlp_full = _join_tensors(overlaps_full, "mts")
 
     loss_by_joined = {}
-    loss_by_joined["coeff"] = loss_fn_coeff(input_c=c_ml, target_c=c_ri)
-    loss_by_joined["cutoff_via_c"] = loss_fn_cutoff(
+    loss_by_joined["coeff"] = loss_fn_orth(
+        input_c=c_ml,
+        target_c=c_ri,
+    )
+    loss_by_joined["cutoff_via_c"] = loss_fn_via_c(
         input_c=c_ml,
         target_c=c_ri,
         overlap=ovlp_cutoff,
     )
-    loss_by_joined["cutoff_via_w"] = loss_fn_cutoff(
+    loss_by_joined["cutoff_via_w"] = loss_fn_via_w(
         input_c=c_ml,
         target_c=c_ri,
         target_w=w_ri,
         overlap=ovlp_cutoff,
     )
-    loss_by_joined["full_via_c"] = loss_fn_full(
+    loss_by_joined["full_via_c"] = loss_fn_via_c(
         input_c=c_ml,
         target_c=c_ri,
         overlap=ovlp_full,
     )
-    loss_by_joined["full_via_w"] = loss_fn_full(
+    loss_by_joined["full_via_w"] = loss_fn_via_w(
         input_c=c_ml,
         target_c=c_ri,
         target_w=w_ri,
@@ -428,27 +413,27 @@ def test_loss_onsite_equals_full_isolated_atoms(A: int):
         ri_coeffs, mts.multiply(mts.random_uniform_like(ri_coeffs), 0.1)
     )
 
-    loss_fn_full = RhoLoss(orthogonal=False, truncated=False)
-    loss_fn_onsite = RhoLoss(orthogonal=False, truncated=False)
+    loss_fn_via_c = RhoLoss(solver="nonorthogonal_via_c")
+    loss_fn_via_w = RhoLoss(solver="nonorthogonal_via_w")
 
     # Calculate losses
-    l_full_via_c = loss_fn_full(
+    l_full_via_c = loss_fn_via_c(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         overlap=overlap_full,
     )
-    l_full_via_w = loss_fn_full(
+    l_full_via_w = loss_fn_via_w(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         target_w=ri_projs,
         overlap=overlap_full,
     )
-    l_on_via_c = loss_fn_onsite(
+    l_on_via_c = loss_fn_via_c(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         overlap=overlap_onsite,
     )
-    l_on_via_w = loss_fn_onsite(
+    l_on_via_w = loss_fn_via_w(
         input_c=ml_coeffs,
         target_c=ri_coeffs,
         target_w=ri_projs,

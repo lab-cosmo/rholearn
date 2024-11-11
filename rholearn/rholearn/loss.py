@@ -8,70 +8,55 @@ from typing import Optional
 import metatensor.torch as mts
 import torch
 
+# Define the supported loss solvers and the required parameters for RhoLoss.forward
+SOLVERS = {
+    "orthogonal": ["input_c", "target_c"],
+    "nonorthogonal_via_c": ["input_c", "target_c", "overlap"],
+    "nonorthogonal_via_w": ["input_c", "target_c", "overlap", "target_w"],
+}
 
 class RhoLoss(torch.nn.Module):
     """
-    Implements the general L2 loss function:
+    Implements different solvers for L2 loss between two real space scalar fields:
 
     .. math::
 
-        L = ( c^{inp} - c^{tar} ) \\hat{S}^{tar} ( c^{inp} - c^{tar} )
+        L = \\int_{\\mathcal{R}} d\\textbf{r} | ...
+                \\rho^{input} (\\textbf{r}) - \\rho^{target} (\\textbf{r}) | ^ 2
 
-    and derived forms for evaluating the loss between an input and target scalar field,
-    both expanded on the same spherical basis set.
+    where both input and target scalar fields are expanded on the same spherical basis
+    set.
 
-    :param orthogonal: bool, whether the basis set is orthogonal. Default false. If true
-        and ``normalized=False``, the overlap passed to :py:meth:`forward` must be
-        diagonal. If true and ``normalized=True``, the overlap need not be passed.
-    :param normalized: optional bool, whether the basis set is normalized. This
-        parameter is only relevant if ``orthogonal=True``. If ``orthogonal=False``, the
-        basis is assumed to be non-normalized and the overlap matrix must be passed to
-        :py:meth:`forward`. Default false when not set and applicable.
-    :param truncated: optional bool, whether to compute a truncated form of the loss
-        whose gradient with respect to model parameters is equivalent to the
-        non-truncated form. Not applicable when ``orthogonal=True`` and
-        ``normalized=True``, or when only ``target_c`` (and not ``target_w``) are passed
-        to :py:meth:`forward`. Default false when not set and applicable.
+    :param solver: a :py:class:`str` indicating the solver to use. Each solver requires
+        different input data.
+    :param truncated: :py:class:`bool`, whether or not to drop terms from the loss that
+        have zero-derivative with respect to model parameters.
+    :param conditioner: the overlap conditioner to use in loss evaluation. Only
+        applicable for solvers "nonorthogonal_via_c" and "nonorthogonal_via_w". Assumes
+        that ``overlap`` matrices passed to :py:meth:`forward` have already been
+        conditioned by summation with the ``conditioner``-scaled identity matrix.
     """
-
     def __init__(
         self,
-        orthogonal: bool = False,
-        normalized: Optional[bool] = None,
-        truncated: Optional[bool] = None,
+        solver: str,
+        truncated: bool = False,
+        conditioner: Optional[float] = None
     ) -> None:
 
         super().__init__()
-
-        # Check parameters
-        if orthogonal:
-            if normalized is None:
-                normalized = False
-            assert (
-                truncated is None
-            ), "``truncated`` only applies to nonorthogonal basis sets."
-
-        else:
-            if truncated is None:
-                truncated = False
-            assert normalized is None, (
-                "``normalized`` must be None, as non-normalized and normalized"
-                " basis sets are treated equivalently by this class for"
-                " non-orthogonal basis sets"
-            )
-
-        # Set attributes
-        self._orthogonal = orthogonal
-        self._normalized = normalized
+        assert solver in SOLVERS, f"``solver`` must be one of: {SOLVERS}"
+        self._solver = solver
+        self._required_data = SOLVERS[solver]
+        if truncated:
+            if solver in ["orthogonal", "nonorthogonal_via_c"]:
+                raise ValueError("``truncated`` can only be passed with ")
         self._truncated = truncated
-
-    def _error_msg(self, variable_name: str, should_be_passed: bool) -> str:
-        return (
-            f"`{variable_name}` must {'' if should_be_passed else 'not'} be passed"
-            f" for the combination of `orthogonal={self._orthogonal}`"
-            f" and `normalized={self._normalized}`"
-            f" and `truncated={self._truncated}`."
-        )
+        if conditioner is not None:
+            if solver == "orthogonal":
+                raise ValueError("``conditioner`` cannot be passed with solver='orthogonal'")
+            assert truncated, "``truncated`` must be true if passing ``conditioner``"
+            assert conditioner > 0, "conditioner must be > 0"
+        self._conditioner = conditioner
 
     def forward(
         self,
@@ -82,344 +67,89 @@ class RhoLoss(torch.nn.Module):
         check_metadata: bool = True,
     ) -> torch.Tensor:
         """
-        Computes the loss between the input and target scalar fields, expanded on a
-        spherical basis.
+        Computes the loss with the specified ``solver``.
+
+        :param truncated: :py:class:`bool`, whether to compute a truncated form of the
+            loss whose gradient with respect to model parameters is equivalent to the
+            non-truncated form. If true, terms with zero gradient wrt model parameters
+            are not computed. Default false.
+        :param conditioned: :py:class:`bool`, whether the input ``overlap``, if passed,
+            should be assumed to be conditioned - i.e. relative to the true overlap if
+            the idenitity matrix has been subtracted from it.
         """
-        if self._orthogonal:
-            return self._forward_orthogonal(
-                input_c=input_c,
-                target_c=target_c,
-                target_w=target_w,
-                overlap=overlap,
-                check_metadata=check_metadata,
+        for req_data in self._required_data:
+            assert locals().get(req_data) is not None, (
+                f"``{req_data}`` data is required for solver {self._solver}"
             )
 
-        return self._forward_nonorthogonal(
-            input_c=input_c,
-            target_c=target_c,
-            target_w=target_w,
-            overlap=overlap,
-            check_metadata=check_metadata,
-        )
-
-    def _forward_orthogonal(
-        self,
-        input_c: mts.TensorMap,
-        target_c: Optional[mts.TensorMap],
-        target_w: Optional[mts.TensorMap],
-        overlap: Optional[mts.TensorMap],
-        check_metadata: bool = True,
-    ) -> torch.Tensor:
-        """
-        Evaluates the loss for an orthogonal basis, either normalized or not.
-
-        Assumes that ``overlap`` is a vector corresponding to the diagonal of the
-        overlap matrix, in :py:class:`TensorMap` format, with the same metadata as the
-        input and target TensorMaps.
-        """
-        # Normalized basis
-        if self._normalized is True:
-            # Overlap need not be passed as it is the identity matrix in this case
-            assert overlap is None, self._error_msg("overlap", False)
-
-            # For an orthonormal basis, `c` and `w` are equivalent. Either can be
-            # passed.
-            if target_w is not None:
-                assert target_c is None, self._error_msg("target_c", False)
-                target_c = target_w
-            assert target_c is not None, self._error_msg("overlap", True)
-
-            return _orthonormal_basis(
-                input_c=input_c,
-                target_c=target_c,
-                check_metadata=check_metadata,
-            )
-
-        # Non-normalized basis. Overlap is diagonal.
-        assert overlap is not None, self._error_msg("overlap", True)
-
-        if target_w is None:
-            # Evaluate via `c` only. The attribute ``truncated`` is irrelevant in this
-            # case.
-            assert target_c is not None, self._error_msg("target_c", True)
-            return _orthogonal_basis_via_c(
-                overlap=overlap,
-                input_c=input_c,
-                target_c=target_c,
-                check_metadata=check_metadata,
-            )
-
-        # if target_c is None:
-        #     target_c = [None] * len(input_c)
-
-        return _orthogonal_basis_via_w(
-            overlap=overlap,
-            input_c=input_c,
-            target_c=target_c,
-            target_w=target_w,
-            truncated=self._truncated,
-            check_metadata=check_metadata,
-        )
-
-    def _forward_nonorthogonal(
-        self,
-        input_c: mts.TensorMap,
-        target_c: Optional[mts.TensorMap],
-        target_w: Optional[mts.TensorMap],
-        overlap: Optional[mts.TensorMap],
-        check_metadata: bool = True,
-    ) -> torch.Tensor:
-        """
-        Evaluates the loss for a nonorthogonal basis.
-
-        Assumes that ``overlap`` is the overlap matrix in :py:class:`TensorMap` format.
-        """
-        assert overlap is not None, self._error_msg("overlap", True)
-
-        if target_w is None:
-            # Evaluate via `c` only. The attribute ``truncated`` is irrelevant in this
-            # case.
-            assert target_c is not None, self._error_msg("target_c", True)
-            return _nonorthogonal_via_c(
-                overlap=overlap,
-                input_c=input_c,
-                target_c=target_c,
-                check_metadata=check_metadata,
-            )
-
-        if not self._truncated:
-            assert target_c is not None, (
-                "if evaluating the non-truncated loss with the overlap matrix,"
-                " ``target_c`` must be passed."
-            )
-
-        return _nonorthogonal_via_w(
-            overlap=overlap,
-            input_c=input_c,
-            target_c=target_c,
-            target_w=target_w,
-            truncated=self._truncated,
-            check_metadata=check_metadata,
-        )
-
-
-# =============================================
-# ===== Loss evaluation: orthogonal basis =====
-# =============================================
-
-
-def _orthonormal_basis(
-    input_c: mts.TensorMap, target_c: mts.TensorMap, check_metadata: bool = True
-) -> torch.Tensor:
-    """
-    Evaluates the L2 loss between `input` and `target` coefficients from an orthonormal
-    basis set The overlap matrix is implicitly treated as the identity.
-
-    .. math::
-
-        L  = ( c^{inp} - c^{tar} ) ^ 2
-
-    Note: this is the formal definition of the loss for an orthogonal basis.
-
-    As for an orthonormal basis the coefficients and projections are equivalent, either
-    can be passed for target and input.
-
-    The passed TensorMaps can correspond to multiple structures, but must have equal
-    metadata.
-    """
-    # Check metadata
-    if check_metadata:
-        _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
-
-    # Evaluate loss
-    loss = 0
-    for key in input_c.keys:
-        delta_c_block = input_c.block(key).values - target_c.block(key).values
-        block_loss = delta_c_block * delta_c_block
-        loss += block_loss.sum()
-
-    return loss
-
-
-def _orthogonal_basis_via_c(
-    overlap: mts.TensorMap,
-    input_c: mts.TensorMap,
-    target_c: mts.TensorMap,
-    check_metadata: bool = True,
-) -> torch.Tensor:
-    """
-    Evaluates the L2 loss between `input` and `target` coefficients fromm an orthogonal
-    basis set, i.e. as if the overlap matrix was diagonal but not necessarily the
-    identity. Evaluation occurs via the target coefficients, and not the projections.
-
-    .. math::
-
-        L = \\sum_i
-            ( c^{inp}_i - c^{tar}_i ) \\hat{S}^{tar}_{ii} ( c^{inp}_i - c^{tar}_i)
-
-    Note: this is the formal definition of the loss for an orthogonal basis.
-
-    The TensorMaps passed can correspond to multiple structures.
-    """
-    # Check metadata
-    if check_metadata:
-        _equal_metadata_raise(input_c, overlap, "input_c", "overlap")
-        _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
-
-    # Evaluate loss
-    loss = 0
-    for key in input_c.keys:
-        delta_c_block = input_c.block(key).values - target_c.block(key).values
-        s_block = overlap.block(key).values
-        block_loss = delta_c_block * s_block * delta_c_block
-        loss += block_loss.sum()
-
-    return loss
-
-
-def _orthogonal_basis_via_w(
-    overlap: mts.TensorMap,
-    input_c: mts.TensorMap,
-    target_c: Optional[mts.TensorMap] = None,
-    target_w: Optional[mts.TensorMap] = None,
-    truncated: bool = False,
-    check_metadata: bool = True,
-) -> torch.Tensor:
-    """
-    Evaluates the L2 loss between `input` and `target` coefficients as if they are from
-    an orthogonal basis set, i.e. as if the overlap matrix was diagonal, but not the
-    identity (or a scalar multiple of it).
-
-    .. math::
-
-        L = \\sum_i
-            c^{inp}_i \\hat{S}_{ii} c^{inp}_i - 2 * c^{inp}_i w^{tar}_i
-
-    Note: this is the formal definition of the loss for an orthogonal basis if
-    ``truncated`` is set to false. If true, this expression does not match the formal
-    definition of the loss, as only terms with nonzero-derivative with respect to model
-    parameters are computed.
-
-    The TensorMaps passed can correspond to multiple structures.
-    """
-    # Check metadata
-    if check_metadata:
-        _equal_metadata_raise(input_c, overlap, "input_c", "overlap")
-        if target_c is not None:
-            _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
-        if target_w is not None:
-            _equal_metadata_raise(input_c, target_w, "input_c", "target_w")
-
-    # Evaluate loss
-    loss = 0
-    for key in input_c.keys:
-        in_c_block = input_c.block(key).values
-        tar_w_block = target_w.block(key).values
-        s_block = overlap.block(key).values
-
-        # c^{in} S c^{in} - 2 c^{in} w^{tar}
-        block_loss = (in_c_block * s_block * in_c_block) - (
-            2 * in_c_block * tar_w_block
-        )
-        if not truncated:  # + c^{tar} w^{tar}
-            tar_c_block = target_c.block(key).values
-            block_loss += tar_c_block * tar_w_block
-
-        loss += block_loss.sum()
-
-    return loss
-
-
-# =================================================
-# ===== Loss evaluation: non-orthogonal basis =====
-# =================================================
-
-
-def _nonorthogonal_via_c(
-    overlap: mts.TensorMap,
-    input_c: mts.TensorMap,
-    target_c: mts.TensorMap,
-    check_metadata: bool = True,
-) -> torch.Tensor:
-    """
-    Evaluates the L2 loss between `input` and `target` fields expanded on a
-    nonorthogonal basis. Evaluation occurs via the target coefficients, and not the
-    projections.
-
-    The expression evaluated in this function is:
-
-    .. math::
-
-        L = ( c^{inp} - c^{tar} ) \\hat{S} ( c^{inp} - c^{tar} )
-
-    which corresponds to the formal definition of the L2 loss on the scalar field when
-    overlaps between all basis functions are included in ``overlap``.
-    """
-    # Check metadata
-    if check_metadata:
-        _check_metadata_coefficients(input_c)
-        _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
-        _check_metadata_overlap(overlap=overlap)
-
-    # Evaluate loss
-    return _cSc(coefficients=mts.subtract(input_c, target_c), overlap=overlap)
-
-
-def _nonorthogonal_via_w(
-    overlap: mts.TensorMap,
-    input_c: mts.TensorMap,
-    target_c: Optional[mts.TensorMap] = None,
-    target_w: Optional[mts.TensorMap] = None,
-    truncated: bool = False,
-    check_metadata: bool = True,
-) -> torch.Tensor:
-    """
-    Evaluates the L2 loss between `input` and `target` fields expanded on a
-    nonorthogonal basis. Evaluation occurs via the target projections where possible.
-
-    For ``truncated=True``, the following expression is evaluated:
-
-    .. math::
-
-        L = c^{inp} \\hat{S} c^{inp} - 2 c^{inp} w^{tar}
-
-    or for ``truncated=False``:
-
-    .. math::
-
-        L = c^{inp} \\hat{S} c^{inp} - 2 c^{inp} w^{tar} + c^{tar} w^{tar}
-
-    This expression is the formal definition of the loss only when the full overlap is
-    passed and ``truncated=False``.
-    """
-    # Check metadata
-    if check_metadata:
-        _check_metadata_coefficients(input_c)
-        _check_metadata_overlap(overlap=overlap)
-
-        if target_c is not None:
-            _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
-
-        if target_w is not None:
-            _equal_metadata_raise(input_c, target_w, "input_c", "target_w")
-
-    # Evaluate loss
-    loss = _cSc(coefficients=input_c, overlap=overlap)
-    loss -= 2 * _dot(input_c, target_w)
-    if not truncated:
-        loss += _dot(target_c, target_w)
-
-    return loss
-
-
-# ===========================
+        # Orthogonal basis
+        # L = (∆c) ^ 2
+        if self._solver == "orthogonal":
+
+            if check_metadata:
+                _check_metadata_coefficients(input_c)
+                _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
+                
+            delta_c = mts.subtract(input_c, target_c)
+            loss = _dot(delta_c, delta_c)
+
+        # Non-orthogonal basis, via target coefficients
+        #     L = ∆c S ∆c
+        # or if conditioned:
+        #     L = ∆c.(S + bI).∆c - b ∆cT.∆c
+        elif self._solver == "nonorthogonal_via_c":            
+            if check_metadata:
+                _check_metadata_coefficients(input_c)
+                _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
+                _check_metadata_overlap(overlap)
+
+            delta_c = mts.subtract(input_c, target_c)
+            loss = _cSc(delta_c, overlap)
+            if self._conditioner is not None:
+                loss -= self._conditioner * _dot(delta_c, delta_c)
+
+        # Non-orthogonal basis, via target projections
+        else:
+            assert self._solver == "nonorthogonal_via_w"
+
+            if check_metadata:
+                _check_metadata_coefficients(input_c)
+                _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
+                _equal_metadata_raise(input_c, target_w, "input_c", "target_w")
+                _check_metadata_overlap(overlap)
+
+            if self._conditioner is None:
+                # Non-orthogonal basis, via target projections
+                #     L = c^{inp}T.S.c^{inp} - 2 c^{inp}T.w^{tar}
+                # if not truncated, the term is added:
+                #     L += c^{tar}T.w^{tar}
+                loss = _cSc(input_c, overlap) - 2 * _dot(input_c, target_w)
+                if not self._truncated:
+                    loss += _cSc(target_c, overlap)
+
+            else:
+                # Non-orthogonal basis, via target projections (conditioned)
+                #     L = c^{inp}T.(S + bI).c^{inp} 
+                #         - b ( c^{inp} + (1/b)w^{tar} )T.( c^{inp} + (1/b)w^{tar} )
+                input_c_plus_target_w = mts.add(
+                    input_c, mts.multiply(target_w, 1 / self._conditioner)
+                )
+                loss = (
+                    _cSc(input_c, overlap) 
+                    - self._conditioner 
+                    * _dot(input_c_plus_target_w, input_c_plus_target_w)
+                )
+            
+        return loss
+
+
+# =========================== 
 # ===== Base operations =====
 # ===========================
 
 
 def _cSc(
-    coefficients: mts.TensorMap,
-    overlap: mts.TensorMap,
+    coefficients: mts.TensorMap, overlap: mts.TensorMap,
 ) -> torch.Tensor:
     """
     Evaluates the double matrix multiplcation and reduces to a scalar:
@@ -535,25 +265,21 @@ def _Sc(
     return projections
 
 
-def _dot(vector_1: mts.TensorMap, vector_2: mts.TensorMap) -> torch.Tensor:
+def _dot(coefficients_1: mts.TensorMap, coefficients_2: mts.TensorMap) -> torch.Tensor:
     """
     Performs the dot product between two vectors:
 
     .. math::
 
-        v_1 . v_2
+        c_1 . c_2
 
-    where ``vector_1`` is the vector "v_1" and ``vector_2`` is the vector "v_2". The
-    Both are assumed to have equivalent metadata. Returns a scalar.
+    where ``coefficients_1`` is the vector "c_1" and ``coefficients_2`` is the vector
+    "c_2". Both are assumed to have equivalent metadata. Returns a scalar.
     """
-    return torch.sum(
-        torch.stack(
-            [
-                (vector_1[key].values * vector_2[key].values).sum()
-                for key in vector_1.keys
-            ]
-        )
-    )
+    dot_product = 0
+    for key in coefficients_1.keys:
+        dot_product += torch.tensordot(coefficients_1[key].values, coefficients_2[key].values)
+    return dot_product
 
 
 # ===========================

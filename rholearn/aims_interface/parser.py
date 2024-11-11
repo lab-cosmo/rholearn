@@ -14,17 +14,18 @@ from chemfiles import Frame
 from scipy.interpolate import CubicHermiteSpline
 
 from rholearn.aims_interface import fields, io, parser
+from rholearn.rholearn import mask
 from rholearn.utils import convert, system, utils
 from rholearn.utils.io import pickle_dict
 
 
-def get_ks_orbital_info(
+def get_eigenstate_info(
     aims_output_dir: str,
-    fname: Optional[str] = "ks_orbital_info.out",
+    fname: Optional[str] = "eigenstate_info.out",
     as_array: bool = True,
 ) -> dict:
     """
-    Parses the AIMS output file "ks_orbital_info.out" in directory ``aims_output_dir``
+    Parses the AIMS output file "eigenstate_info.out" in directory ``aims_output_dir``
     into a numpy array containing all the Kohn-Sham orbital information.
 
     The number of rows of this file is equal to the number of KS-orbitals, i.e. the
@@ -208,11 +209,18 @@ def get_prodbas_radii(aims_output_dir: str, fname: Optional[str] = "aims.out") -
                 float(line[5]),
                 float(line[7]),
             )
-            prodbas_data[(symbol, l)] = {
+            tmp_dict = {
                 "charge_radius": charge_radius,
                 "field_radius": field_radius,
                 "mulitpole_mom": mulitpole_mom,
             }
+            if symbol in prodbas_data:
+                if l in prodbas_data[symbol]:
+                    prodbas_data[symbol][l].append(tmp_dict)
+                else:
+                    prodbas_data[symbol][l] = [tmp_dict]
+            else:
+                prodbas_data[symbol] = {l: [tmp_dict]}
 
         else:
             break
@@ -220,41 +228,23 @@ def get_prodbas_radii(aims_output_dir: str, fname: Optional[str] = "aims.out") -
     return prodbas_data
 
 
-def get_max_overlap_radius(
-    aims_output_dir: str, atom_1: Union[str, int], atom_2: Union[str, int]
-) -> float:
+def get_max_overlap_radius_by_type(aims_output_dir: str) -> float:
     """
-    Returns the maximum overlap radius between the two atom types passed in ``atom_1``
-    and ``atom_2``.
-
+    Returns the maximum overlap radius by species type.
     Reads the product basis function radii by parsing "aims.out" file in the directory
-    ``aims_output_dir``.
+    ``aims_output_dir``, using the function :py:func:`get_prodbas_radii`.
     """
-    if isinstance(atom_1, int):
-        sym_1 = system.atomic_number_to_atomic_symbol(atom_1)
-    elif isinstance(atom_1, str):
-        sym_1 = atom_1
-    else:
-        raise ValueError(f"invalid atom_1: {atom_1}")
-    if isinstance(atom_2, int):
-        sym_2 = system.atomic_number_to_atomic_symbol(atom_2)
-    elif isinstance(atom_2, str):
-        sym_2 = atom_2
-    else:
-        raise ValueError(f"invalid atom_2: {atom_2}")
-
     # Get the product basis function radii
-    prodbas_data = get_prodbas_radii(aims_output_dir)
+    radii = get_prodbas_radii(aims_output_dir)
 
-    # Parse max radii
-    max_radius_1, max_radius_2 = 0, 0
-    for key in prodbas_data.keys():
-        if key[0] == sym_1:
-            max_radius_1 = max(max_radius_1, float(prodbas_data[key]["charge_radius"]))
-        if key[0] == sym_2:
-            max_radius_2 = max(max_radius_2, float(prodbas_data[key]["charge_radius"]))
+    max_radii = {}
+    for symbol, l_dict in radii.items():
+        species_type = system.atomic_symbol_to_atomic_number(symbol)
+        max_radii[species_type] = max(
+            [item["charge_radius"] for l, l_list in radii[symbol].items() for item in l_list]
+        )
 
-    return max_radius_1 + max_radius_2
+    return max_radii
 
 
 def parse_aims_out(aims_output_dir: str, fname: str = "aims.out") -> dict:
@@ -577,6 +567,8 @@ def process_ri_outputs(
     aims_output_dir: str,
     structure_idx: int,
     ovlp_cond_num: bool,
+    cutoff_ovlp: bool,
+    ovlp_sparsity_threshold: Optional[float],
     save_dir: str,
 ) -> None:
     """
@@ -640,6 +632,35 @@ def process_ri_outputs(
         structure_idx=structure_idx,
         backend="numpy",
     )
+
+    # Parse basis function radii
+    max_radii = parser.get_max_overlap_radius_by_type(aims_output_dir)
+    pickle_dict(
+        join(save_dir, "max_bf_radii.pickle"),
+        max_radii,
+    )
+
+    # Cutoff overlap if applicable
+    if cutoff_ovlp:
+        ovlp = mask.cutoff_overlap_matrix(
+            frames=[frame],
+            frame_idxs=[structure_idx],
+            overlap_matrix=ovlp,
+            radii=max_radii,
+            drop_empty_blocks=True,
+            backend="numpy",
+        )
+
+    # Remove overlaps that are below a threshold
+    if ovlp_sparsity_threshold is not None:
+        ovlp = mask.sparsify_overlap_matrix(
+            overlap_matrix=ovlp,
+            sparsity_threshold=ovlp_sparsity_threshold,
+            drop_empty_blocks=True,
+            backend="numpy",
+        )
+    
+    # Save
     metatensor.save(
         join(save_dir, "ri_ovlp.npz"),
         utils.make_contiguous_numpy(ovlp),
@@ -668,38 +689,64 @@ def process_ri_outputs(
 def process_df_error(
     aims_output_dir: str,
     save_dir: str,
-    mask_coords: Optional[Callable] = None,
+    masked_system_type: Optional[str] = None,
+    **kwargs,
 ) -> None:
     """
     Processes the density fitting error of the RI density reconstruction versus the SCF
-    density. ``mask_coords`` can be passed to indicate which grid points to evaluate the
-    error on.
+    density. If ``masked_system_type`` and the corresponding mask kwargs are passed, the
+    scalar field coordinates are masked to only evaluate the error on the active region.
 
-    Saves this to "df_error.pickle", or "df_error_masked.pickle" if ``mask_coords`` is
-    specified.
+    Saves this to "df_error.pickle", or "df_error_masked.pickle" if
+    ``masked_system_type`` is specified.
     """
     # Load fields
     input = np.loadtxt(join(aims_output_dir, "rho_rebuilt_ri.out"))
     target = np.loadtxt(join(aims_output_dir, "rho_scf.out"))
     grid = np.loadtxt(join(aims_output_dir, "partition_tab.out"))
 
+    # Build a coordinate mask, if applicable
+    if masked_system_type is not None:
+        input = input[
+            mask.get_point_indices_by_region(
+                points=input[:, :3],
+                masked_system_type=masked_system_type,
+                region="active",
+                **kwargs,
+            )
+        ]
+        target = target[
+            mask.get_point_indices_by_region(
+                points=target[:, :3],
+                masked_system_type=masked_system_type,
+                region="active",
+                **kwargs,
+            )
+        ]
+        grid = grid[
+            mask.get_point_indices_by_region(
+                points=grid[:, :3],
+                masked_system_type=masked_system_type,
+                region="active",
+                **kwargs,
+            )
+        ]
+
     # Calc errors
     abs_error, norm = fields.field_absolute_error(
         input,
         target,
         grid,
-        mask_coords=mask_coords,
     )
     squared_error, norm = fields.field_squared_error(
         input,
         target,
         grid,
-        mask_coords=mask_coords,
     )
     pickle_dict(
         join(
             save_dir,
-            "df_error.pickle" if mask_coords is None else "df_error_masked.pickle",
+            "df_error.pickle" if masked_system_type is None else f"df_error_masked.pickle",
         ),
         {
             "abs_error": abs_error,
@@ -856,3 +903,50 @@ def spline_eigenenergies(
         metatensor.torch.save(join(save_dir, "dos_spline.npz"), splines_mts)
 
     return splines_mts
+
+
+def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = None):
+    """
+    Parses the angle resolved PDOS data in files named, for instance:
+
+        "atom_proj_dos_Au0001.dat"
+
+    and produced by setting the FHI-aims tag `output` to, for instance:
+
+        "atom_proj_dos -30 5 1000 0.3",
+
+    where the arguments are the energy range, number of points, and Gaussian width.
+
+    Returns a dictionary of the parsed data, where each key is a (symbol, l) tuple, and
+    the values are a dictionary of PDOS arrays indexed by atom index.
+
+    ``frame`` can be optionally passed. If none, it is read from "geometry.in" in
+    ``aims_output_dir``.
+    """
+
+    if frame is None:
+        frame = io.read_geometry(aims_output_dir)
+
+    pdos_data = {}
+    for i, sym in enumerate(system.get_symbols(frame), start=1):
+
+        # Read atom PDOS file
+        pdos_atom = np.loadtxt(
+            join(aims_output_dir, f"atom_proj_dos_{sym}{str(i).zfill(4)}.dat")
+        )
+
+        # Store the energy array only once
+        if i == 1:
+            energy = pdos_atom[:, 0]
+
+        # Store total PDOS (non-angle resolved)
+        if (sym, "total") not in pdos_data:
+            pdos_data[(sym, "total")] = {}
+        pdos_data[(sym, "total")][i] = pdos_atom[:, 1]
+
+        for o3_lambda in range(pdos_atom.shape[1] - 2):
+            if (sym, o3_lambda) not in pdos_data:
+                pdos_data[(sym, o3_lambda)] = {}
+            pdos_data[(sym, o3_lambda)][i] = pdos_atom[:, o3_lambda + 2]
+
+    return energy, pdos_data

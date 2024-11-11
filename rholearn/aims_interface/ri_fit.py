@@ -10,7 +10,7 @@ from os.path import exists, join
 import numpy as np
 from chemfiles import Frame
 
-from rholearn.aims_interface import hpc, io, orbitals
+from rholearn.aims_interface import hpc, io, orbitals, parser
 from rholearn.options import get_options
 from rholearn.rholearn import mask
 from rholearn.utils import system
@@ -26,13 +26,17 @@ def run_ri_fit() -> None:
     dft_options, hpc_options = _get_options()
 
     # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = None
-    frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-    if frame_idxs is None:
         frame_idxs = list(range(len(frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    frames = [frames[A] for A in frame_idxs]
 
     # Write submission script and run FHI-aims via sbatch array
     fname = f"run-aims-ri-{hpc.timestamp()}.sh"
@@ -59,11 +63,16 @@ def setup_ri_fit() -> None:
     # Get the DFT and HPC options
     dft_options, hpc_options = _get_options()
 
-    # Get the frame indices
+    # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
+        frame_idxs = list(range(len(frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
 
     # Define the python command to run for the given frame
     python_command = (
@@ -99,14 +108,7 @@ def setup_ri_fit_for_frame(frame_idx: int) -> None:
 
     # Retype masked atoms for the RI calculation
     if dft_options["MASK"] is not None:
-        # Check that there are some active atoms in each frame
-        assert (
-            len(dft_options["MASK"]["get_active_coords"](frame.positions)) > 0
-        ), "No active atoms found in frame. Check the MASK settings."
-        frame = mask.retype_masked_atoms(
-            frame,
-            get_masked_coords=dft_options["MASK"]["get_masked_coords"],
-        )
+        frame = mask.retype_frame(frame, **dft_options["MASK"])
 
     # Make RI dir and copy settings file
     if not exists(dft_options["RI_DIR"](frame_idx)):
@@ -114,8 +116,8 @@ def setup_ri_fit_for_frame(frame_idx: int) -> None:
     shutil.copy("dft-options.yaml", dft_options["RI_DIR"](frame_idx))
     shutil.copy("hpc-options.yaml", dft_options["RI_DIR"](frame_idx))
 
-    # Write the KS-orbital weights to file (if applicable)
-    _write_kso_weights_to_file(dft_options, hpc_options, frame_idx, frame)
+    # Write the eigenstate occupations to file (if applicable)
+    _write_eigenstate_occs_to_file(dft_options, hpc_options, frame_idx, frame)
 
     # Get control parameters
     control_params = io.get_control_parameters_for_frame(
@@ -134,7 +136,7 @@ def setup_ri_fit_for_frame(frame_idx: int) -> None:
     return
 
 
-def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
+def process_ri_fit() -> None:
     """
     Processes the outputs of the RI fitting calculation(s)
     """
@@ -142,30 +144,25 @@ def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
     # Get the DFT and HPC options
     dft_options, hpc_options = _get_options()
 
-    # Get the frame indices
+    # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
+        frame_idxs = list(range(len(frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
 
     for A in frame_idxs:
-        shutil.copy("dft-options.yaml", dft_options["RI_DIR"](A))
-        shutil.copy("hpc-options.yaml", dft_options["RI_DIR"](A))
+        os.makedirs(dft_options["PROCESSED_DIR"](A), exist_ok=True)
+        shutil.copy("dft-options.yaml", dft_options["PROCESSED_DIR"](A))
+        shutil.copy("hpc-options.yaml", dft_options["PROCESSED_DIR"](A))
 
     python_command = (
-        'python3 -c "from rholearn.aims_interface import parser; '
-        "from rholearn.aims_interface import ri_fit; "
-        "dft_options, hpc_options = ri_fit._get_options(); "
-        "parser.process_ri_outputs("
-        "aims_output_dir='.',"
-        ' structure_idx="${ARRAY_IDX}",'
-        f" ovlp_cond_num={'True' if get_ovlp_cond_num else 'False'},"
-        f" save_dir='{dft_options['PROCESSED_DIR']('${ARRAY_IDX}')}',"
-        ");"
-        "parser.process_df_error("
-        f"aims_output_dir='{dft_options['RI_DIR']('${ARRAY_IDX}')}',"
-        f" save_dir='{dft_options['PROCESSED_DIR']('${ARRAY_IDX}')}',"
-        ')"'
+        'python3 -c "from rholearn.aims_interface import ri_fit;'
+        ' ri_fit.process_ri_fit_for_frame(frame_idx="${ARRAY_IDX}");"'
     )
 
     # Process the RI fit output for each frame
@@ -173,73 +170,84 @@ def process_ri_fit(get_ovlp_cond_num: bool = False) -> None:
     hpc.write_python_sbatch_array(
         fname=fname,
         array_idxs=frame_idxs,
-        run_dir=dft_options["RI_DIR"],
+        run_dir=dft_options["PROCESSED_DIR"],
         python_command=python_command,
         slurm_params=hpc_options["SLURM_PARAMS"],
     )
     hpc.run_script(".", "sbatch " + fname)
 
+def process_ri_fit_for_frame(frame_idx: int) -> None:
+    """
+    Process the RI outputs. Function should be called from the FHI-aims output
+    directory. 
+    """
 
-def _write_kso_weights_to_file(
+    dft_options, hpc_options = _get_options()
+    parser.process_ri_outputs(
+        aims_output_dir=dft_options['RI_DIR'](frame_idx),
+        structure_idx=frame_idx,
+        ovlp_cond_num=dft_options['PROCESS_RI']['overlap_cond_num'],
+        cutoff_ovlp=dft_options['PROCESS_RI']['cutoff_overlap'],
+        ovlp_sparsity_threshold=float(dft_options['PROCESS_RI']['sparsity_threshold']),
+        save_dir=dft_options['PROCESSED_DIR'](frame_idx)
+    )
+    parser.process_df_error(
+        aims_output_dir=dft_options['RI_DIR'](frame_idx),
+        save_dir=dft_options['PROCESSED_DIR'](frame_idx),
+        **dft_options["MASK"],
+    )
+
+
+def _write_eigenstate_occs_to_file(
     dft_options: dict, hpc_options: dict, A: int, frame: Frame
 ) -> None:
     """
-    Identifies the field to be constructed and writes the KS-orbital
-    weights to file using the appropriate settings.
+    Identifies the field to be constructed and writes the eigenstate
+    occupations to file using the appropriate settings.
     """
-    if dft_options["FIELD_NAME"] == "edensity":  # no weights required
-        # assert dft_options["RI"].get("ri_fit_total_density") is not None, (
-        #     "FHI-aims tag `ri_fit_total_density` must be set to `true`"
-        #     f" for fitting to the `{dft_options["FIELD_NAME"]}` field."
-        # )
-        # assert dft_options["RI"].get("ri_fit_field_from_kso_weights") is None, (
-        #     "FHI-aims tag `ri_fit_field_from_kso_weights` must not be specified"
-        #     f" if fitting to the `{dft_options["FIELD_NAME"]}` field."
-        # )
-        pass
-    else:  # calculate KSO weights
+    if dft_options["FIELD_NAME"] == "edensity":  # no occupations required
+        return
+    
+    # Calculate KSO occupations
+    calc_info = unpickle_dict(join(dft_options["SCF_DIR"](A), "calc_info.pickle"))
 
-        assert dft_options["RI"].get("ri_fit_total_density") is None, (
-            "FHI-aims tag `ri_fit_total_density` must not be specified"
-            f" if fitting to the `{dft_options['FIELD_NAME']}` field."
-        )
-        assert dft_options["RI"].get("ri_fit_field_from_kso_weights") is not None, (
-            "FHI-aims tag `ri_fit_field_from_kso_weights` must be set to `true`"
-            f" if fitting to the `{dft_options['FIELD_NAME']}` field."
+    if dft_options["FIELD_NAME"] == "edensity_from_occs":
+
+        eigenstate_occs = orbitals.get_eigenstate_occs_e_density(
+            dft_options["SCF_DIR"](A)
         )
 
-        # Get SCF calculation info and path to KS-orbital info
-        calc_info = unpickle_dict(join(dft_options["SCF_DIR"](A), "calc_info.pickle"))
+    elif dft_options["FIELD_NAME"] == "ildos":
 
-        if dft_options["FIELD_NAME"] == "edensity_from_weights":
-
-            kso_weights = orbitals.get_kso_weight_vector_e_density(
-                dft_options["SCF_DIR"](A)
+        if dft_options.get("ILDOS") is None:
+            raise ValueError(
+                "Options field `ILDOS` must be provided in dft-options.yaml"
             )
 
-        elif dft_options["FIELD_NAME"] == "ildos":
+        # Save ILDOS settings
+        ildos_kwargs = {k: v for k, v in dft_options["ILDOS"].items()}
+        ildos_kwargs["target_energy"] = calc_info[ildos_kwargs["target_energy"]]
 
-            # Save LDOS settings
-            ldos_kwargs = {k: v for k, v in dft_options["LDOS"].items()}
-            ldos_kwargs["target_energy"] = calc_info[ldos_kwargs["target_energy"]]
-            pickle_dict(join(dft_options["RI_DIR"](A), "ldos_settings"), ldos_kwargs)
+        # Get KSO occupations
+        eigenstate_occs = orbitals.get_eigenstate_occs_ildos(
+            aims_output_dir=dft_options["SCF_DIR"](A),
+            gaussian_width=ildos_kwargs["gaussian_width"],
+            energy_window=ildos_kwargs["energy_window"],
+            target_energy=ildos_kwargs["target_energy"],
+            method=ildos_kwargs["method"],
+        )
 
-            # Get KSO weights
-            kso_weights = orbitals.get_kso_weight_vector_ildos(
-                aims_output_dir=dft_options["SCF_DIR"](A), **ldos_kwargs
-            )
+    elif dft_options["FIELD_NAME"] == "homo":
+        eigenstate_occs = orbitals.get_eigenstate_occs_homo(dft_options["SCF_DIR"](A))
 
-        elif dft_options["FIELD_NAME"] == "homo":
-            kso_weights = orbitals.get_kso_weight_vector_homo(dft_options["SCF_DIR"](A))
+    elif dft_options["FIELD_NAME"] == "lumo":
+        eigenstate_occs = orbitals.get_eigenstate_occs_lumo(dft_options["SCF_DIR"](A))
 
-        elif dft_options["FIELD_NAME"] == "lumo":
-            kso_weights = orbitals.get_kso_weight_vector_lumo(dft_options["SCF_DIR"](A))
+    else:
+        raise ValueError(f"Unknown named field: {dft_options['FIELD_NAME']}")
 
-        else:
-            raise ValueError(f"Unknown named field: {dft_options['FIELD_NAME']}")
-
-        # Write to file
-        np.savetxt(join(dft_options["RI_DIR"](A), "ks_orbital_weights.in"), kso_weights)
+    # Write to file
+    np.savetxt(join(dft_options["RI_DIR"](A), "eigenstate_occs.in"), eigenstate_occs)
 
 
 def _get_options() -> None:

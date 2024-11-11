@@ -25,19 +25,23 @@ def run_ri_rebuild() -> None:
     dft_options, hpc_options = _get_options()
 
     # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = None
-    frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-    if frame_idxs is None:
         frame_idxs = list(range(len(frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    frames = [frames[A] for A in frame_idxs]
 
     # Retype masked atoms for the RI calculation
     if dft_options.get("MASK") is not None:
-        frames = mask.retype_masked_atoms(
+        frames = mask.retype_frame(
             frames,
-            get_masked_coords=dft_options["MASK"]["get_masked_coords"],
+            **dft_options["MASK"],
         )
 
     coefficients = []
@@ -131,7 +135,6 @@ def rebuild_field(
     ``rebuild_dir``, indexed by ``frame_idxs``, then rebuilds the field by calling
     FHI-aims.
     """
-
     for A, frame, coeff in zip(frame_idxs, frames, coefficients):
 
         # Make rebuild directory

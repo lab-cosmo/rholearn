@@ -138,7 +138,7 @@ def write_control(
                 value = [value]
 
             for val in value:
-                if key == "output" and val in ["cube ri_fit", "cube total_density"]:
+                if key == "output" and val in ["cube ri_density", "cube total_density"]:
                     f.write(f"{key.ljust(40)} {val}\n")
                     if parameters.get("cubes") is not None:
                         f.write(f"{parameters['cubes']}\n")
@@ -163,32 +163,32 @@ def write_control(
             with open(join(species_defaults, fname), "r") as species_file:
                 species_default_str = species_file.read()
 
-        # Case 2: no species default - assume a pseudo atom type and create an empty
-        # basis set definition
         else:
-            std_atomic_number = atomic_number % 1000
-            std_symbol = system.atomic_number_to_atomic_symbol(std_atomic_number)
-            fname = str(std_atomic_number).zfill(2) + "_" + std_symbol + "_default"
+            raise FileNotFoundError(
+                f"species default file: {fname} not found."
+            )
 
-            with open(join(species_defaults, fname), "r") as species_file:
-                species_default_str = species_file.read()
+        # # Case 2: no species default - assume a pseudo atom type
+        # else:
+        #     std_atomic_number = atomic_number % 1000
+        #     std_symbol = system.atomic_number_to_atomic_symbol(std_atomic_number)
+        #     fname = str(std_atomic_number).zfill(2) + "_" + std_symbol + "_default"
 
-            # Find the index of the line that says, i.e. "species     H"
-            lines = species_default_str.split("\n")
-            index = None
-            for i, line in enumerate(lines):
-                if line.strip().startswith("species") and std_symbol in line:
-                    index = i
-                    break
+            
 
-            # Replace the line with "species X_1 \n max_n_prodbas 0"
-            if index is None:
-                raise ValueError("cannot find species line in species default")
+            # with open(join(species_defaults, fname), "r") as species_file:
+            #     species_default_str = species_file.read()
 
-            lines[index] = f"species {std_symbol}_1 \n    max_n_prodbas    0"
+            # # Find the index of the line that says, i.e. "species     H"
+            # lines = species_default_str.split("\n")
+            # index = None
+            # for i, line in enumerate(lines):
+            #     if line.strip().startswith("species") and std_symbol in line:
+            #         index = i
+            #         break
 
-            # Join the lines back into a single string
-            species_default_str = "\n".join(lines)
+            # # Join the lines back into a single string
+            # species_default_str = "\n".join(lines)
 
         # Store the species default
         species_default_strings[atomic_number] = species_default_str
@@ -221,18 +221,19 @@ def get_control_parameters_for_frame(
     control_params.update({**extra_settings})
 
     # Add tailored cube edges if needed
-    if ("cube ri_fit" in extra_settings.get("output", [])) or (
+    if ("cube ri_density" in extra_settings.get("output", [])) or (
         "cube total_density" in extra_settings.get("output", [])
     ):
         if cube_settings is None:
-            raise ValueError("Must pass `cube_settings` if 'cube' in `extra_settings`")
+            return control_params
+
         if cube_settings.get("slab", False) is True:
             control_params.update(
                 _get_aims_cube_edges_slab(
                     frame,
                     cube_settings.get("n_points"),
-                    z_min=None,  # want cube file generated on full system
-                    z_max=None,
+                    z_min=cube_settings.get("z_min"),
+                    z_max=cube_settings.get("z_max"),
                 )
             )
         else:

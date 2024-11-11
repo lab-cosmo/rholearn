@@ -1,6 +1,6 @@
 # Physical settings for running FHI-aims
 BASE_AIMS:
-  xc: pbe0
+  xc: pbe
   spin: none
   charge: 0
   relativistic: atomic_zora scalar
@@ -8,17 +8,24 @@ BASE_AIMS:
 # For SCF procedure
 SCF:
   elsi_restart: write 1000
-  output: cube total_density
+  output: eigenstate_info
 
 # For RI-fitting procedure
 RI:
-  ri_full_output: true
-  ri_density_restart: write
-  default_max_l_prodbas: null
-  default_prodbas_acc: 1e-5
   elsi_restart: read
   ri_skip_scf: true
+  ri_density_restart: write
+  ri_full_output: true
   ri_ovlp_write_triu: true
+  default_max_l_prodbas: null
+  default_prodbas_acc: 1e-5
+  output: ["cube total_density", "cube ri_density"]  # for SCF and RI field cube output
+
+# Options for processing of RI outputs
+PROCESS_RI:
+  overlap_cond_num: false
+  cutoff_overlap: false
+  ovlp_sparsity_threshold: null
 
 # For rebuilding fields
 REBUILD:
@@ -26,9 +33,15 @@ REBUILD:
   ri_full_output: true
   default_max_l_prodbas: null  # must be the same as RI option
   default_prodbas_acc: 1e-5    # must be the same as RI option
-  output: cube total_density
+  output: cube ri_density
 
-# Cube grid settings
+# To generate data for a subset of the structures in the XYZ file
+IDX_SUBSET: null
+
+# For excluding structures, i.e. that data generation may have failed for
+IDX_EXCLUDE: null
+
+# Cube grid settings. Set to null if wanting to use FHI-aims internal defaults.
 CUBE:
   n_points: [100, 100, 100]
 
@@ -39,7 +52,9 @@ RUN_ID: edensity
 FIELD_NAME: edensity
 
 # For sample masking
-MASK: null
+MASK: {}
 
-# To generate data for a subset of the structures in the XYZ file
-IDX_SUBSET: null
+# For fitting the ILDOS
+ILDOS: {}
+
+

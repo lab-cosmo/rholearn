@@ -12,28 +12,23 @@ def field_absolute_error(
     input: np.ndarray,
     target: np.ndarray,
     grid: np.ndarray,
-    mask_coords: Optional[Callable] = None,
     already_sorted: bool = False,
 ) -> Tuple[float]:
     """
     Calculates and returns:
 
-        - the integrated absolute error between the between the ``input`` and ``target``
-          fields. This is calculated as the absolute error at each grid point,
-          integrated over all space. Integration is performed numerically by taking the
-          dot product of the error field at each grid point with the integration weight
-          (tabulated partition function) in ``grid``.
-        - the normalization factor: the ``target`` field, integrated over all space as
-          above.
+    - the integrated absolute error between the between the ``input`` and ``target``
+        fields. This is calculated as the absolute error at each grid point, integrated
+        over all space. Integration is performed numerically by taking the dot product
+        of the error field at each grid point with the integration weight (tabulated
+        partition function) in ``grid``.
+    - the normalization factor: the ``target`` field, integrated over all space as
+        above.
 
     All of ``input``, ``target``, and ``grid`` are arrays of shape (N_points, 4), where
     the first 3 columns at the xyz coordinates of each grid point, and final column is
     the value of the field at that point, or the integration weight in the case of
     ``grid``.
-
-    ``mask_coords`` can be passed as a callable function that returns a boolean mask of
-    grid points based on their xyz coordinate. If passed, the error and normalization
-    are calculated only for grid points that return ``True`` when passed to ``mask``.
     """
     if not (
         np.all(input[:, :3] == target[:, :3]) and np.all(target[:, :3] == grid[:, :3])
@@ -51,15 +46,8 @@ def field_absolute_error(
             grid = sort_field_by_grid_points(grid)
 
             return field_absolute_error(
-                input, target, grid, mask_coords, already_sorted=True
+                input, target, grid, already_sorted=True
             )
-
-    # Mask the fields if applicable
-    if mask_coords is not None:
-        mask = mask_coords(input[:, :3])
-        input = input[mask]
-        target = target[mask]
-        grid = grid[mask]
 
     abs_error = np.dot(np.abs(input[:, 3] - target[:, 3]), grid[:, 3])
     normalization = np.dot(target[:, 3], grid[:, 3])
@@ -71,7 +59,6 @@ def field_squared_error(
     input: np.ndarray,
     target: np.ndarray,
     grid: np.ndarray,
-    mask_coords: Optional[Callable] = None,
     already_sorted: bool = False,
 ) -> Tuple[float]:
     """
@@ -89,10 +76,6 @@ def field_squared_error(
     the first 3 columns at the xyz coordinates of each grid point, and final column is
     the value of the field at that point, or the integration weight in the case of
     ``grid``.
-
-    ``mask_coords`` can be passed as a callable function that returns a boolean mask of
-    grid points based on their xyz coordinate. If passed, the error and normalization
-    are calculated only for grid points that return ``True`` when passed to ``mask``.
     """
     if not (
         np.all(input[:, :3] == target[:, :3]) and np.all(target[:, :3] == grid[:, :3])
@@ -110,15 +93,8 @@ def field_squared_error(
             grid = sort_field_by_grid_points(grid)
 
             return field_squared_error(
-                input, target, grid, mask_coords, already_sorted=True
+                input, target, grid, already_sorted=True
             )
-
-    # Mask the fields if applicable
-    if mask_coords is not None:
-        mask = mask_coords(input[:, :3])
-        input = input[mask]
-        target = target[mask]
-        grid = grid[mask]
 
     squared_error = np.dot((input[:, 3] - target[:, 3]) ** 2, grid[:, 3])
     normalization = np.dot(target[:, 3], grid[:, 3])

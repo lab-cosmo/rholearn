@@ -606,6 +606,8 @@ def coeff_vector_blocks_to_flat(
     # Loop over the atomic species in the order given in `frame`
     coeffs = np.array([])
     for atom_i, symbol in enumerate(system.get_symbols(frame)):
+        if symbol not in lmax:
+            lmax[symbol] = -1
         for o3_lambda in range(lmax[symbol] + 1):
             coeffs = np.append(coeffs, coeff_dict[(o3_lambda, symbol)][atom_i])
 

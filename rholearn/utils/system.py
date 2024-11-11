@@ -121,6 +121,7 @@ def frame_to_atomistic_system(
         types=torch.tensor(get_types(frame), dtype=torch.int32, device=device),
         positions=torch.tensor(frame.positions, dtype=dtype, device=device),
         cell=torch.tensor(frame.cell.matrix, dtype=dtype, device=device),
+        pbc=torch.tensor([not all(row == 0) for row in frame.cell.matrix])
     )
 
 
@@ -144,45 +145,6 @@ def chemfiles_frame_to_ase_frame(frame: Union[Frame, List[Frame]]) -> ase.Atoms:
         cell=cell,
         pbc=pbc,
     )
-
-
-def add_virtual_nodes_in_bonds(frame: Union[Frame, List[Frame]]) -> Frame:
-    """
-    Add a virtual node in the middle of each bond in the frame.
-
-    Uses the ASE geometry analysis to get the bonds between atoms.
-
-    Note: this only works for molecules, not for periodic systems.
-    """
-    if isinstance(frame, list):
-        return [add_virtual_nodes_in_bonds(f) for f in frame]
-
-    if not all([d == 0 for d in frame.cell.lengths]):
-        raise ValueError(
-            "This function only works for molecules, not for periodic systems"
-        )
-
-    new_symbols = list(get_symbols(frame))
-    new_positions = list(frame.positions)
-
-    unique_symbols = list(set(get_symbols(frame)))
-
-    analysis = Analysis(chemfiles_frame_to_ase_frame(frame))
-    for symbol_i, symbol_1 in enumerate(unique_symbols):
-        for symbol_2 in unique_symbols[symbol_i:]:
-            # Get the bonds between the two chemical types and add an atom there
-            for i, j in analysis.get_bonds(symbol_1, symbol_2, unique=True)[0]:
-
-                new_positions.append((frame.positions[i] + frame.positions[j]) / 2)
-                new_symbols.append("X")
-
-    new_frame = Frame()
-    # TODO: copy the cell from the original frame once periodic systems are supported
-    # new_frame.cell.matrix = frame.cell.matrix
-    for symbol, position in zip(new_symbols, new_positions):
-        new_frame.add_atom(Atom(name=symbol, type=symbol), position)
-
-    return new_frame
 
 
 def get_neighbor_list(

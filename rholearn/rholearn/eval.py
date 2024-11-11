@@ -3,13 +3,14 @@ import time
 from os.path import exists, join
 from typing import List
 
+import matplotlib.pyplot
 import numpy as np
 import torch
 
 from rholearn.aims_interface import fields, ri_rebuild
 from rholearn.options import get_options
-from rholearn.rholearn import train_utils
-from rholearn.utils import convert, io, system
+from rholearn.rholearn import mask, train_utils
+from rholearn.utils import convert, cube, io, system
 
 
 def eval():
@@ -19,22 +20,13 @@ def eval():
         2. Perform inference
         3. Rebuild fields by calling FHI-aims
         4. Evaluate MAE against reference fields
+        5. Generates STM images by parsing FHI-aims cube output files
+    
+    Steps 2 and 3 only occur if rebuild output files don't already exist. Steps 4 and 5
+    only occur if the respective `EVAL` options are specified in ml-options.yaml.
     """
     t0_eval = time.time()
     dft_options, hpc_options, ml_options = _get_options()
-
-    # Get frame indices we have data for (or a subset if specified)
-    if dft_options.get("IDX_SUBSET") is not None:
-        frame_idxs = dft_options.get("IDX_SUBSET")
-    else:
-        frame_idxs = None
-    # Load all the frames
-    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-
-    if frame_idxs is None:
-        frame_idxs = list(range(len(all_frames)))
-
-    _check_input_settings(dft_options, ml_options, frame_idxs)
 
     # ===== Setup =====
     os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
@@ -51,6 +43,22 @@ def eval():
         ml_options["EVAL_DIR"](ml_options["EVAL"]["eval_epoch"]), f"{frame_idx}"
     )
 
+    # Load all the frames
+    io.log(log_path, "Loading frames")
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
+
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(range(len(all_frames)))
+    
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    _check_input_settings(dft_options, ml_options, frame_idxs)
+
     # ===== Get the test data =====
 
     io.log(log_path, "Get the test IDs and frames")
@@ -61,19 +69,10 @@ def eval():
         n_test=ml_options["N_TEST"],
         seed=ml_options["SEED"],
     )
+    io.log(log_path, f"    Test system ID: {test_id}")
     test_frames = [all_frames[A] for A in test_id]
 
     # ===== Load model and perform inference =====
-
-    # Check that evaluation hasn't already happened
-    all_aims_outs = [join(rebuild_dir(A), "aims.out") for A in test_id]
-    if any([exists(aims_out) for aims_out in all_aims_outs]):
-        msg = (
-            "Rebuild calculations have already been run for this model."
-            " Move or remove these and try again. Exiting."
-        )
-        io.log(log_path, msg)
-        raise SystemExit(msg)
 
     io.log(
         log_path,
@@ -83,114 +82,211 @@ def eval():
         join(ml_options["CHKPT_DIR"](ml_options["EVAL"]["eval_epoch"]), "model.pt")
     )
 
-    # Perform inference
-    io.log(log_path, "Perform inference")
-    t0_infer = time.time()
-    test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)
-    dt_infer = time.time() - t0_infer
-    io.log(
-        log_path, train_utils.report_dt(dt_infer, "Model inference (on basis) complete")
-    )
-    io.log(log_path, train_utils.report_dt(dt_infer / len(test_id), "   or per frame"))
-
-    # ===== Rebuild fields =====
-    io.log(log_path, "Rebuild real-space field(s) in FHI-aims")
-
-    # Convert predicted coefficients to flat numpy arrays
-    test_preds_numpy = [
-        convert.coeff_vector_blocks_to_flat(
-            frame, coeff_vector, basis_set=model._target_basis
+    # Check that evaluation hasn't already happened
+    all_aims_outs = [join(rebuild_dir(A), "aims.out") for A in test_id]
+    if all([exists(aims_out) for aims_out in all_aims_outs]):
+        msg = (
+            "Rebuild calculations have already been run for this model."
+            " Re-running evaluation on pre-existing FHI-aims rebuild files."
+            " To re-run the rebuild, remove the existing output files."
         )
-        for frame, coeff_vector in zip(test_frames, test_preds_mts)
-    ]
+        io.log(log_path, msg)
 
-    # Run rebuild routine
-    t0_build = time.time()
-    ri_rebuild.rebuild_field(
-        frame_idxs=test_id,
-        frames=test_frames,
-        coefficients=test_preds_numpy,
-        rebuild_dir=rebuild_dir,
-        aims_command=dft_options["AIMS_COMMAND"],
-        base_settings=dft_options["BASE_AIMS"],
-        rebuild_settings=dft_options["REBUILD"],
-        cube_settings=dft_options["CUBE"],
-        species_defaults=dft_options["SPECIES_DEFAULTS"],
-        slurm_params=hpc_options["SLURM_PARAMS"],
-        load_modules=hpc_options["LOAD_MODULES"],
-        export_vars=hpc_options["EXPORT_VARIABLES"],
-    )
+    else:
 
-    # Wait for FHI-aims rebuild(s) to finish
-    io.log(log_path, "Waiting for FHI-aims rebuild calculation(s) to finish...")
-    while len(all_aims_outs) > 0:
-        for aims_out in all_aims_outs:
-            if exists(aims_out):
-                with open(aims_out, "r") as f:
-                    # Basic check to see if AIMS calc has finished
-                    if "Leaving FHI-aims." in f.read():
-                        all_aims_outs.remove(aims_out)
-
-    dt_build = time.time() - t0_build
-    io.log(
-        log_path,
-        train_utils.report_dt(dt_build, "Build predcted field(s) in FHI-aims complete"),
-    )
-
-    # ===== Evaluate NMAE =====
-    io.log(
-        log_path,
-        "Evaluate MAE versus reference field type:"
-        f" {ml_options['EVAL']['target_type']}",
-    )
-    nmaes = []
-    for A in test_id:
-        # Load grid and predicted field
-        grid = np.loadtxt(join(dft_options["RI_DIR"](A), "partition_tab.out"))
-        rho_ml = np.loadtxt(join(rebuild_dir(A), "rho_rebuilt_ri.out"))
-
-        # Load reference field - either SCF or RI
-        if ml_options["EVAL"]["target_type"] == "scf":
-            rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_scf.out"))
-        else:
-            assert ml_options["EVAL"]["target_type"] == "ri"
-            rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.out"))
-
-        # Get the MAE and normalization
-        abs_error, norm = fields.field_absolute_error(
-            input=rho_ml,
-            target=rho_ref,
-            grid=grid,
+        # Perform inference
+        io.log(log_path, "Perform inference")
+        t0_infer = time.time()
+        test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)
+        dt_infer = time.time() - t0_infer
+        io.log(
+            log_path, train_utils.report_dt(dt_infer, "Model inference (on basis) complete")
         )
-        nmae = 100 * abs_error / norm
-        nmaes.append(nmae)
+        io.log(log_path, train_utils.report_dt(dt_infer / len(test_id), "    or per frame"))
 
-        # Also compute the squared error
-        squared_error, norm = fields.field_squared_error(
-            input=rho_ml,
-            target=rho_ref,
-            grid=grid,
+        # ===== Rebuild fields =====
+        io.log(log_path, "Rebuild real-space field(s) in FHI-aims")
+
+        # Convert predicted coefficients to flat numpy arrays
+        if model._masked_system_type is not None:
+            test_frames = mask.retype_frame(
+                test_frames, model._masked_system_type, **model._mask_kwargs
+            )
+        test_preds_numpy = [
+            convert.coeff_vector_blocks_to_flat(
+                frame, coeff_vector, basis_set=model._target_basis
+            )
+            for frame, coeff_vector in zip(test_frames, test_preds_mts)
+        ]
+
+        # Run rebuild routine
+        t0_build = time.time()
+        ri_rebuild.rebuild_field(
+            frame_idxs=test_id,
+            frames=test_frames,
+            coefficients=test_preds_numpy,
+            rebuild_dir=rebuild_dir,
+            aims_command=dft_options["AIMS_COMMAND"],
+            base_settings=dft_options["BASE_AIMS"],
+            rebuild_settings=dft_options["REBUILD"],
+            cube_settings=dft_options["CUBE"],
+            species_defaults=dft_options["SPECIES_DEFAULTS"],
+            slurm_params=hpc_options["SLURM_PARAMS"],
+            load_modules=hpc_options["LOAD_MODULES"],
+            export_vars=hpc_options["EXPORT_VARIABLES"],
         )
 
-        # Log and save the results
+        # Wait for FHI-aims rebuild(s) to finish
+        io.log(log_path, "Waiting for FHI-aims rebuild calculation(s) to finish...")
+        while len(all_aims_outs) > 0:
+            for aims_out in all_aims_outs:
+                if exists(aims_out):
+                    with open(aims_out, "r") as f:
+                        # Basic check to see if AIMS calc has finished
+                        if "Leaving FHI-aims." in f.read():
+                            all_aims_outs.remove(aims_out)
+
+        dt_build = time.time() - t0_build
         io.log(
             log_path,
-            f"system {A} abs_error {abs_error:.5f} norm {norm:.5f}"
-            f" nmae {nmae:.5f} squared_error {squared_error:.5f}",
-        )
-        np.savez(
-            join(rebuild_dir(A), "mae.npz"),
-            abs_error=abs_error,
-            norm=norm,
-            nmae=nmae,
-            squared_error=squared_error,
+            train_utils.report_dt(dt_build, "Build predicted field(s) in FHI-aims complete"),
         )
 
-    io.log(
-        log_path, f"Mean % NMAE per structure: {torch.mean(torch.tensor(nmaes)):.5f}"
-    )
+    # ===== Evaluate NMAE =====
+    if len(ml_options["EVAL"]["target_type"]) > 0:
+        if isinstance(ml_options["EVAL"]["target_type"], str):
+            target_types = [ml_options["EVAL"]["target_type"]]
+        else:
+            target_types = ml_options["EVAL"]["target_type"]
 
-    # ===== Finish =====
+        io.log(
+            log_path,
+            f"Evaluate MAE versus reference field type(s): {target_types}",
+        )
+        if model._masked_system_type is not None:
+            io.log(
+                log_path, "Evaluting errors on active region coordinates only"
+            )
+
+        nmaes = {t: [] for t in target_types}
+        for A in test_id:
+            # Load grid and predicted field
+            grid = np.loadtxt(join(dft_options["RI_DIR"](A), "partition_tab.out"))
+            rho_ml = np.loadtxt(join(rebuild_dir(A), "rho_rebuilt_ri.out"))
+
+            # Build a coordinate mask, if applicable
+            if model._masked_system_type is not None:
+                rho_ml = rho_ml[
+                    mask.get_point_indices_by_region(
+                        points=rho_ml[:, :3],
+                        masked_system_type=model._masked_system_type,
+                        region="active",
+                        **model._mask_kwargs,
+                    )
+                ]
+                grid = grid[
+                    mask.get_point_indices_by_region(
+                        points=grid[:, :3],
+                        masked_system_type=model._masked_system_type,
+                        region="active",
+                        **model._mask_kwargs,
+                    )
+                ]
+
+            # Load each reference field - either SCF or RI
+            for target_type in target_types:
+                if target_type == "scf":
+                    rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_scf.out"))
+                else:
+                    assert target_type == "ri"
+                    rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.out"))
+
+                # Build a coordinate mask, if applicable
+                if model._masked_system_type is not None:
+                    rho_ref = rho_ref[
+                        mask.get_point_indices_by_region(
+                            points=rho_ref[:, :3],
+                            masked_system_type=model._masked_system_type,
+                            region="active",
+                            **model._mask_kwargs,
+                        )
+                    ]
+
+                # Get the MAE and normalization
+                abs_error, norm = fields.field_absolute_error(
+                    input=rho_ml,
+                    target=rho_ref,
+                    grid=grid,
+                )
+                nmae = 100 * abs_error / norm
+                nmaes[target_type].append(nmae)
+
+                # Also compute the squared error
+                squared_error, norm = fields.field_squared_error(
+                    input=rho_ml,
+                    target=rho_ref,
+                    grid=grid,
+                )
+
+                # Log and save the results
+                io.log(
+                    log_path,
+                    f"system {A} target {target_type} abs_error {abs_error:.5f} norm {norm:.5f}"
+                    f" nmae {nmae:.5f} squared_error {squared_error:.5f}",
+                )
+                np.savez(
+                    join(rebuild_dir(A), f"error_{target_type}.npz"),
+                    abs_error=abs_error,
+                    norm=norm,
+                    nmae=nmae,
+                    squared_error=squared_error,
+                )
+
+        io.log(
+            log_path, "Mean % NMAE per structure:"
+        )
+        for target_type in nmaes.keys():
+            io.log(
+                log_path, f"    {target_type}: {torch.mean(torch.tensor(nmaes[target_type])):.5f}"
+            )
+
+    # ===== Generate STM images =====
+    if ml_options["EVAL"]["stm"].get("mode") is not None:
+
+        t0_stm = time.time()
+        io.log(log_path, "Generating STM images")
+
+        for A in test_id:
+            io.log(log_path, f"    Structure: {A}")
+            # Load the SCF, RI, and ML cube files
+            q_scf = cube.RhoCube(join(dft_options["RI_DIR"](A), "cube_001_total_density.cube"))
+            q_ri = cube.RhoCube(join(dft_options["RI_DIR"](A), "cube_002_ri_density.cube"))
+            q_ml = cube.RhoCube(join(rebuild_dir(A), "cube_001_ri_density.cube"))
+
+            # Plot the STM scatter
+            if ml_options["EVAL"]["stm"]["mode"] == "ccm":
+
+                fig, ax = cube.plot_contour_ccm(
+                    cubes=[q_scf, q_ri, q_ml],
+                    save_dir=rebuild_dir(A),
+                    **ml_options["EVAL"]["stm"]["options"],
+                )
+
+            else:
+
+                assert ml_options["EVAL"]["stm"]["mode"] == "chm"
+                fig, ax = cube.plot_contour_chm(
+                    cubes=[q_scf, q_ri, q_ml],
+                    save_dir=rebuild_dir(A),
+                    **ml_options["EVAL"]["stm"]["options"],
+                )
+            matplotlib.pyplot.close()
+
+        dt_stm = time.time() - t0_stm
+        io.log(log_path, train_utils.report_dt(dt_stm, "STM image generation complete"))
+        io.log(log_path, train_utils.report_dt(dt_stm / len(test_id), "    or per frame"))
+
+    # ===== Report eval timings =====
     dt_eval = time.time() - t0_eval
     io.log(log_path, train_utils.report_dt(dt_eval, "Evaluation complete (total time)"))
 
@@ -242,5 +338,6 @@ def _check_input_settings(dft_options: dict, ml_options: dict, frame_idxs: List[
             " sets must be <= the number of frames"
         )
 
-    if ml_options["EVAL"]["target_type"] not in ["scf", "ri"]:
-        raise ValueError("EVAL['target_type'] must be 'scf' or 'ri'")
+    for target_type in ml_options["EVAL"]["target_type"]:
+        if target_type not in ["scf", "ri"]:
+            raise ValueError("EVAL['target_type'] must one or both of ['scf', 'ri']")

@@ -1,7 +1,22 @@
+from typing import List, Optional, Union
+
 import ase
 import ase.build
 import ase.io
 import numpy as np
+import vesin
+
+from ase.geometry.analysis import Analysis
+
+import metatensor
+import metatensor.torch
+
+import chemfiles
+from chemfiles import Atom, Frame, UnitCell
+
+from rholearn.utils import system
+from rholearn.utils._dispatch import int_array
+
 
 
 def perturb_slab(slab, noise_scale_factor: float = 0.25):
@@ -9,9 +24,7 @@ def perturb_slab(slab, noise_scale_factor: float = 0.25):
     Applies Gaussian noise to all lattice positions of the input `slab`, except the
     bottom layer and its passivating Hydrogens. Assumes that the only Hydrogen present
     in the slab are the ones passivating the bottom layer.
-
     Returns the perturbed slab, leaving the positions of the input `slab` unchanged.
-
     `noise_scale_factor` scales the Gaussian noise applied to the unconstrained atoms.
     """
     perturbed_slab = slab.copy()
@@ -54,9 +67,7 @@ def perturb_slab_constrain_bottom_layers(
     constrained_slice_distance`], where `z_min` is the minimum z-coordinate in the
     system, and `constrained_slice_distance` is the thickness of the slab in the
     z-direction that should be constrained.
-
     Returns the perturbed slab, leaving the positions of the input `slab` unchanged.
-
     `noise_scale_factor` scales the Gaussian noise applied to the unconstrained atoms.
     """
     perturbed_slab = slab.copy()
@@ -227,3 +238,129 @@ def make_slab_topside_dimer_pair(
             slab[idx2].position[2] -= buckled * tilt_factor
 
     return slab
+
+
+def add_virtual_nodes_in_bonds(
+    frame: Union[Frame, List[Frame]], selected_atoms: Optional[List[int]] = None
+) -> Frame:
+    """
+    Add a virtual node in the middle of each bond in the frame.
+    Uses the ASE geometry analysis to get the bonds between atoms.
+    ``selected_atoms`` can be used to specify a subset of atoms to consider when
+    computing bonds.
+    TODO: currently, this may not be deterministic as when virtual nodes are placed very
+    close to each other, the one placed first (determined by the order of the atoms in
+    the input frame) will be kept and the other discarded.
+    """
+    if isinstance(frame, list):
+        return [add_virtual_nodes_in_bonds(f) for f in frame]
+
+    assert isinstance(frame, chemfiles.frame.Frame), (
+        f"Invalid frame type: {type(frame)}. Must be chemfiles.frame.Frame."
+    )
+
+    if selected_atoms is None:
+        selected_atoms = list(range(len(frame.positions)))
+
+    new_symbols = list(system.get_symbols(frame))
+    new_positions = list(frame.positions)
+
+    unique_symbols = list(set(system.get_symbols(frame)))
+
+    analysis = Analysis(system.chemfiles_frame_to_ase_frame(frame))
+    for symbol_i, symbol_1 in enumerate(unique_symbols):
+        for symbol_2 in unique_symbols[symbol_i:]:
+            # Get the bonds between the two chemical types and add an atom there
+            for i, j in analysis.get_bonds(symbol_1, symbol_2, unique=True)[0]:
+
+                if i not in selected_atoms or j not in selected_atoms:
+                    continue
+
+                new_position = (frame.positions[i] + frame.positions[j]) / 2
+
+                # Check we're not placing virtual nodes on top of each other
+                if np.any(np.linalg.norm(new_positions - new_position, axis=1) < 0.1):
+                    continue
+
+                new_positions.append(new_position)
+                new_symbols.append("X")
+
+    new_frame = Frame()
+    new_frame.cell = UnitCell(frame.cell.matrix)
+    for symbol, position in zip(new_symbols, new_positions):
+        new_frame.add_atom(Atom(name=symbol, type=symbol), position)
+
+    return new_frame
+
+
+def get_neighbor_list(
+    frames: List[Frame],
+    frame_idxs: List[int],
+    cutoff: float,
+    backend: str = "numpy",
+) -> Union[metatensor.Labels, metatensor.torch.Labels]:
+    """
+    Computes the neighbour list for each frame in ``frames`` and returns a
+    :py:class:`metatensor.Labels` object with dimensions "system", "atom_1",
+    and "atom_2". Atom indices are triangular, such that "atom_1" <= "atom_2".
+    Self terms are included by default.
+    """
+    # Assign backend
+    if backend == "numpy":
+        mts = metatensor
+    elif backend == "torch":
+        mts = metatensor.torch
+    else:
+        raise ValueError(f"Invalid backend: {backend}. Must be 'numpy' or 'torch'.")
+
+    # Initialise the neighbor list calculator
+    nl = vesin.NeighborList(cutoff=cutoff, full_list=False)
+
+    labels_values = []
+    for A, frame in zip(frame_idxs, frames):
+
+        # Compute the neighbor list
+        if any([d == 0 for d in frame.cell.lengths]):
+            box = np.zeros((3, 3))
+            periodic = False
+        else:
+            box = frame.cell.matrix
+            periodic = True
+
+        i_list, j_list = nl.compute(
+            points=frame.positions,
+            box=box,
+            periodic=periodic,
+            quantities="ij",
+        )
+
+        # Now add in the self terms as vesin does not include them
+        i_list = np.concatenate([i_list, np.arange(len(frame.positions), dtype=int)])
+        j_list = np.concatenate([j_list, np.arange(len(frame.positions), dtype=int)])
+
+        # Ensure i <= j
+        new_i_list = []
+        new_j_list = []
+        for i, j in zip(i_list, j_list):
+            if i < j:
+                new_i_list.append(i)
+                new_j_list.append(j)
+            else:
+                new_i_list.append(j)
+                new_j_list.append(i)
+
+        # Sort by i
+        sort_idxs = np.argsort(new_i_list)
+        new_i_list = np.array(new_i_list)[sort_idxs]
+        new_j_list = np.array(new_j_list)[sort_idxs]
+
+        # Add dimension for system index
+        for i, j in zip(new_i_list, new_j_list):
+            label = [A, i, j] if i <= j else [A, j, i]
+            if label not in labels_values:
+                labels_values.append(label)
+
+    return mts.Labels(
+        names=["system", "atom_1", "atom_2"],
+        values=int_array(labels_values, backend=backend),
+    )

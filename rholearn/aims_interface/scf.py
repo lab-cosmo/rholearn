@@ -42,16 +42,20 @@ def _run_scf(model: str) -> None:
     dft_options, hpc_options = _get_options(model)
 
     # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = None
-    frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-    if frame_idxs is None:
         frame_idxs = list(range(len(frames)))
 
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    frames = [frames[A] for A in frame_idxs]
+
     # Build the calculation settings for each frame in turn
-    for A, frame in enumerate(frames):
+    for A, frame in zip(frame_idxs, frames):
 
         # Make RI dir and copy settings file
         if not exists(dft_options["SCF_DIR"](A)):
@@ -100,11 +104,16 @@ def _process_scf(model: str) -> None:
     # Set the DFT settings globally
     dft_options, hpc_options = _get_options(model)
 
-    # Get the frame indices
+    # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
+        frame_idxs = list(range(len(frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
 
     python_command = (
         "from rholearn.aims_interface import parser;"
@@ -138,11 +147,16 @@ def _spline_eigenvalues() -> None:
     # Set the DFT settings globally
     dft_options, _ = _get_options("doslearn")
 
-    # Get the frame indices
+    # Get the frames and indices
+    frames = system.read_frames_from_xyz(dft_options["XYZ"])
     if dft_options.get("IDX_SUBSET") is not None:
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
-        frame_idxs = list(range(len(system.read_frames_from_xyz(dft_options["XYZ"]))))
+        frame_idxs = list(range(len(frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
 
     for A in frame_idxs:
         parser.spline_eigenenergies(

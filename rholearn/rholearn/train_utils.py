@@ -1,8 +1,9 @@
 """
 Module containing functions to perform model training and evaluation steps.
 """
-
+import random
 import os
+import sys
 from functools import partial
 from os.path import exists, join
 from typing import Callable, List, NamedTuple, Optional, Tuple, Union
@@ -15,7 +16,7 @@ from metatensor.torch.learn.data import DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
 from rholearn.rholearn import mask
-from rholearn.utils import _dispatch, convert, system
+from rholearn.utils import _dispatch, convert, io, system
 
 
 def create_subdir(ml_dir: str, name: str):
@@ -51,16 +52,38 @@ def load_tensormap_to_torch(
     """Loads a TensorMap from file and converts its backend to torch."""
     return mts.load(path).to(dtype=dtype, device=device)
 
+def condition_overlap(overlap_matrix: mts.TensorMap, conditioner: float) -> mts.TensorMap:
+    """
+    Conditions the overlap matrix by adding the identity matirx, scaled by the specified
+    ``conditioner``.
+    """
+    for (a1, a2), block in overlap_matrix.items():
+        if a1 != a2:
+            continue
+
+        assert block.values.shape[1] == block.values.shape[2]
+        dim = block.values.shape[1]
+
+        for sample_i, sample in block.samples:
+            if sample["atom_1"] != sample["atom_2"]:
+                continue
+            
+            block.values[sample_i] *= torch.eye(dim) * conditioner
+
+    return overlap_matrix
+
 
 def get_dataset(
     frames: List[Frame],
     frame_idxs: List[int],
     model: torch.nn.Module,
-    data_names: dict,
+    loss_fn: torch.nn.Module,
     load_dir: Callable,
     overlap_cutoff: Optional[float],
+    overlap_threshold: Optional[float],
     dtype: Optional[torch.dtype],
     device: Optional[str],
+    log_path: str,
 ) -> torch.nn.Module:
     """
     Builds a dataset for the given ``frames``, using the ``model`` to pre-compute and
@@ -69,7 +92,14 @@ def get_dataset(
     if not isinstance(frame_idxs, list):
         frame_idxs = list(frame_idxs)
 
+    if isinstance(overlap_cutoff, str):
+        overlap_cutoff = float(overlap_cutoff)
+
+    if isinstance(overlap_threshold, str):
+        overlap_threshold = float(overlap_threshold)
+
     # Descriptors
+    io.log(log_path, "    Computing descriptors")
     descriptor = model.compute_descriptor(
         frames=frames,
         frame_idxs=frame_idxs,
@@ -78,13 +108,12 @@ def get_dataset(
     )
 
     # Coefficients
-    if data_names.get("target_c") is None:
-        target_c = [None] * len(frame_idxs)
-    else:
+    if "target_c" in loss_fn._required_data:
         # Load
+        io.log(log_path, "    Loading target coeffs")
         target_c = [
             load_tensormap_to_torch(
-                join(load_dir(A), data_names["target_c"]), dtype=dtype, device=device
+                join(load_dir(A), "ri_coeffs.npz"), dtype=dtype, device=device
             )
             for A in frame_idxs
         ]
@@ -92,15 +121,16 @@ def get_dataset(
         target_c = [
             convert.coeff_vector_to_sparse_by_center_type(c, "torch") for c in target_c
         ]
+    else:
+        target_c = [None] * len(frame_idxs)
 
     # Projections
-    if data_names.get("target_w") is None:
-        target_w = [None] * len(frame_idxs)
-    else:
+    if "target_w" in loss_fn._required_data:
         # Load
+        io.log(log_path, "    Loading target projs")
         target_w = [
             load_tensormap_to_torch(
-                join(load_dir(A), data_names["target_w"]), dtype=dtype, device=device
+                join(load_dir(A), "ri_projs.npz"), dtype=dtype, device=device
             )
             for A in frame_idxs
         ]
@@ -108,23 +138,77 @@ def get_dataset(
         target_w = [
             convert.coeff_vector_to_sparse_by_center_type(w, "torch") for w in target_w
         ]
+    else:
+        target_w = [None] * len(frame_idxs)
 
     # Overlaps
-    if data_names.get("overlap") is None:
-        overlap = [None] * len(frame_idxs)
-    else:
+    if "overlap" in loss_fn._required_data:
+        io.log(log_path, "    Loading overlaps")
         overlap = [
             load_tensormap_to_torch(
-                join(load_dir(A), data_names["overlap"]), dtype=dtype, device=device
+                join(load_dir(A), "ri_ovlp.npz"), dtype=dtype, device=device
             )
             for A in frame_idxs
         ]
+        # Apply a cutoff to the overlap matrices if applicable
+        if overlap_cutoff is not None:
+            io.log(log_path, f"    Cutting off overlaps at {overlap_cutoff} Ang")
+            overlap = [
+                mask.cutoff_overlap_matrix(
+                    [frame],
+                    [A],
+                    overlap_matrix=ovlp,
+                    cutoff=overlap_cutoff,
+                    drop_empty_blocks=True,
+                    backend="torch",
+                )
+                for frame, A, ovlp in zip(frames, frame_idxs, overlap)
+            ]
+        # Condition overlaps if applicable
+        if loss_fn._conditioner is not None:
+            io.log(log_path, "    Conditioning overlaps")
+            overlap = [
+                condition_overlap(ovlp, loss_fn._conditioner) for ovlp in overlap
+            ]
+        # Remove overlaps that are below a certain threshold value, if applicable
+        if overlap_threshold is not None:
+            io.log(log_path, f"    Sparsifying overlaps with threshold {overlap_threshold}")
+            overlap = [
+                mask.sparsify_overlap_matrix(
+                    overlap_matrix=ovlp,
+                    sparsity_threshold=overlap_threshold,
+                    drop_empty_blocks=True,
+                    backend="torch",
+                )
+                for ovlp in overlap
+            ]
+    else:
+        overlap = [None] * len(frame_idxs)
 
-    # Now mask all tensors if required. Descriptors will already be masked
-    if model._get_selected_atoms is not None:
-        atom_idxs_to_keep = [model._get_selected_atoms(frame) for frame in frames]
+    # Now mask all tensors if required, keeping active and buffer region atoms.
+    # Descriptors will already be masked.
+    if model._masked_system_type is not None:
+        atom_idxs_to_keep = [
+            list(
+                mask.get_point_indices_by_region(
+                    points=frame.positions,
+                    masked_system_type=model._masked_system_type,
+                    region="active",
+                    **model._mask_kwargs,
+                )
+            ) + list(
+                mask.get_point_indices_by_region(
+                    points=frame.positions,
+                    masked_system_type=model._masked_system_type,
+                    region="buffer",
+                    **model._mask_kwargs,
+                )
+            )
+            for frame in frames
+        ]
         # Target coefficients
         if target_c[0] is not None:
+            io.log(log_path, "    Masking target coeffs")
             target_c = [
                 mask.mask_coeff_vector(
                     coeff_vector=targ_c,
@@ -137,6 +221,7 @@ def get_dataset(
 
         # Target projections
         if target_w[0] is not None:
+            io.log(log_path, "    Masking target projs")
             target_w = [
                 mask.mask_coeff_vector(
                     coeff_vector=targ_w,
@@ -149,6 +234,8 @@ def get_dataset(
 
         # Overlaps
         if overlap[0] is not None:
+            io.log(log_path, "    Masking overlaps")
+            # Mask the overlap matrix
             overlap = [
                 mask.mask_overlap_matrix(
                     ovlp,
@@ -158,21 +245,19 @@ def get_dataset(
                 )
                 for ovlp, idxs in zip(overlap, atom_idxs_to_keep)
             ]
+            # And remove buffer-buffer overlaps
+            # overlap = [
+            #     mask.drop_non_active_overlaps(
+            #         frame,
+            #         model._masked_system_type,
+            #         ovlp,
+            #         "torch",
+            #         **model._mask_kwargs,
+            #     )
+            #     for frame, ovlp in zip(frames, overlap)
+            # ]
 
-    # Apply a cutoff to the overlap matrices if applicable
-    if overlap_cutoff is not None:
-        overlap = [
-            mask.cutoff_overlap_matrix(
-                [frame],
-                [A],
-                overlap_matrix=ovlp,
-                cutoff=overlap_cutoff,
-                drop_empty_blocks=True,
-                backend="torch",
-            )
-            for frame, A, ovlp in zip(frames, frame_idxs, overlap)
-        ]
-
+    # Finally construct the dataset
     dataset = IndexedDataset(
         sample_id=frame_idxs,
         frame=frames,
@@ -183,6 +268,51 @@ def get_dataset(
     )
 
     return dataset
+
+def get_mean_data_sizes(
+    dataset: IndexedDataset,
+    n_samples: int = 20,
+) -> Tuple[float]:
+    """
+    Returns the mean size in memory of each data field present in ``dataset``, in MB.
+    """
+    if n_samples > len(dataset):
+        n_samples = len(dataset)
+
+    sizes = {}
+    for i in random.sample(range(len(dataset)), n_samples):
+        sample = dataset[i]
+        for field_name in dataset._field_names:
+
+            # Only get sizes of TensorMaps
+            tensor = getattr(sample, field_name)
+            if not hasattr(tensor, "keys_to_properties"):  # not a TensorMap!
+                continue
+
+            if field_name not in sizes:
+                sizes[field_name] = []
+            
+            sizes[field_name].append(get_size_of_tensormap(tensor))
+    
+    # Mean results
+    for field_name in sizes:
+        sizes[field_name] = np.mean(sizes[field_name])
+
+    return sizes
+
+
+def get_size_of_tensormap(tensor: mts.TensorMap) -> float:
+    """
+    Returns the size (in MB) of a TensorMap, as a sum of the size in memory of each
+    block values tensor.
+
+    Note: assumes no gradients.
+    """
+    size = 0
+    for block in tensor:
+        size += block.values.element_size() * block.values.nelement() * 1e-6
+
+    return size
 
 
 def group_and_join_nonetypes(
@@ -255,6 +385,33 @@ def get_dataloader(
         **dloader_kwargs,  # i.e. batch_size
     )
 
+def get_optimizer(model: torch.nn.Module, name: str, args: dict):
+    """Gets the optimizer by name"""
+    if name == "Adam":
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            **args,
+        )
+    else:
+        raise ValueError(f"unsupported optimizer: {name}")
+
+    return optimizer
+
+def get_scheduler(optimizer, name: str, args: dict):
+    """Gets the scheduler by name"""
+    if name == "StepLR":
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, **args
+        )
+    elif name == "ReduceLROnPlateau":
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, **args
+        )
+    else:
+        raise ValueError(f"unsupported scheduler: {name}")
+
+    return scheduler
+
 
 def epoch_step(
     dataloader,
@@ -282,7 +439,7 @@ def epoch_step(
             optimizer.zero_grad()  # zero grads
 
         input_c = model(  # forward pass
-            frames=batch.frame,
+            frames=list(batch.frame),
             frame_idxs=batch.sample_id,
             descriptor=batch.descriptor,
             split_by_frame=False,
@@ -588,39 +745,47 @@ def split_tensormap_by_system(
         mts.slice(
             tensor,
             "samples",
-            labels=mts.Labels(names="system", values=torch.tensor([A]).reshape(-1, 1)),
+            selection=mts.Labels(names="system", values=torch.tensor([A]).reshape(-1, 1)),
         )
         for A in system_ids
     ]
 
 
-def drop_blocks_for_nonpresent_types(
-    frames: Union[Frame, List[Frame]], tensor: mts.TensorMap
-) -> mts.TensorMap:
-    """
-    Drops blocks from a TensorMap `tensor` that correspond to atom types not present in
-    the given ``frame``.
-    """
-    # Get the unique atom types in `frames`
-    if isinstance(frames, Frame):
-        frames = [frames]
-    atom_types = []
-    for frame in frames:
-        for _type in system.get_types(frame):
-            if _type not in atom_types:
-                atom_types.append(_type)
+# def drop_blocks_for_nonpresent_types(
+#     frames: Union[Frame, List[Frame]],
+#     tensor: mts.TensorMap,
+#     masked_system_type: Optional[str] = None,
+#     **mask_kwargs,
+# ) -> mts.TensorMap:
+#     """
+#     Drops blocks from a TensorMap `tensor` that correspond to atom types not present in
+#     the given ``frame``.
+#     """
+#     # Get the unique atom types in `frames`
+#     if isinstance(frames, Frame):
+#         frames = [frames]
 
-    # Build the new keys and TensorMap
-    new_key_vals = []
-    for key in tensor.keys:
-        if key["center_type"] in atom_types:
-            new_key_vals.append(list(key.values))
+#     atom_types = []
+#     for frame in frames:
+#         if masked_system_type is not None:  # retype frames if applicable
+#             frame = mask.retype_frame(
+#                 frame, masked_system_type, **mask_kwargs
+#             )
+#         for _type in system.get_types(frame):
+#             if _type not in atom_types:
+#                 atom_types.append(_type)
 
-    new_keys = mts.Labels(
-        names=tensor.keys.names,
-        values=_dispatch.int_array(new_key_vals, "torch"),
-    )
-    return mts.TensorMap(
-        keys=new_keys,
-        blocks=[tensor[key] for key in new_keys],
-    )
+#     # Build the new keys and TensorMap
+#     new_key_vals = []
+#     for key in tensor.keys:
+#         if key["center_type"] in atom_types:
+#             new_key_vals.append(list(key.values))
+
+#     new_keys = mts.Labels(
+#         names=tensor.keys.names,
+#         values=_dispatch.int_array(new_key_vals, "torch"),
+#     )
+#     return mts.TensorMap(
+#         keys=new_keys,
+#         blocks=[tensor[key] for key in new_keys],
+#     )

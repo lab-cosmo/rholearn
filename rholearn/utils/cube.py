@@ -5,7 +5,7 @@ https://github.com/funkymunkycool/Cube-Toolz.
 Allows reading and manipulation of cube files, with added functionality for generating
 contour plots (i.e. for use in STM image generation).
 """
-
+from os.path import join
 from typing import List, Optional, Tuple
 
 import cube_tools
@@ -179,6 +179,7 @@ def plot_contour_ccm(
     z_max: float = None,
     xy_tiling: List[int] = None,
     cmap: str = "viridis",
+    save_dir: str = None,
 ):
     """
     Plots a contour plot of the height profile map of the cube file.
@@ -187,9 +188,9 @@ def plot_contour_ccm(
         cubes = [cubes]
 
     fig, axes = plt.subplots(
-        len(cubes),
         1,
-        figsize=(5 * len(cubes), 25),
+        len(cubes),
+        figsize=(5 * 1.5 * len(cubes), 5 * len(cubes)),
         sharey=True,
         sharex=True,
     )
@@ -215,6 +216,11 @@ def plot_contour_ccm(
         ax.set_xlabel("x / Ang")
         ax.set_ylabel("y / Ang")
 
+    if save_dir is not None:
+        plt.savefig(join(save_dir, "cube_scatter_ccm.png"))
+
+    return fig, axes
+
 
 def plot_contour_chm(
     cubes: List[RhoCube],
@@ -222,6 +228,7 @@ def plot_contour_chm(
     thickness: float,
     levels: int,
     cmap: str = "viridis",
+    save_dir: str = None,
 ):
     """
     Plots a contour plot of the height profile map of the cube file.
@@ -230,9 +237,9 @@ def plot_contour_chm(
         cubes = [cubes]
 
     fig, axes = plt.subplots(
-        len(cubes),
         1,
-        figsize=(5 * len(cubes), 25),
+        len(cubes),
+        figsize=(5 * 1.5 * len(cubes), 5 * len(cubes)),
         sharey=True,
         sharex=True,
     )
@@ -255,6 +262,11 @@ def plot_contour_chm(
         ax.set_aspect("equal")
         ax.set_xlabel("x / Ang")
         ax.set_ylabel("y / Ang")
+
+    if save_dir is not None:
+        plt.savefig(join(save_dir, "cube_scatter_chm.png"))
+
+    return fig, axes
 
 
 def contour_scatter_matrix(
