@@ -20,7 +20,7 @@ dependencies = [
     "chemfiles",
     "chemiscope",
     "metatensor[torch]",
-    "rascaline-torch @ git+https://github.com/luthaf/rascaline@5326b6e61147a6e348b29c77fd0a14aefef34815#subdirectory=python/rascaline-torch",
+    "featomic-torch @ git+https://github.com/metatensor/featomic@937679e1396da7f8705fcc9b260f541d59f74a7d#subdirectory=python/featomic-torch",
     "vesin",
 
     # Extra dependencies

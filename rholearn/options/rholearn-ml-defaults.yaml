@@ -2,23 +2,27 @@
 # initialize model parameters
 SEED: 42
 
-# Rascaline SphericalExpansion hyperparameters
+# featomic SphericalExpansion hyperparameters
 SPHERICAL_EXPANSION_HYPERS:
-  cutoff: 3.0  # Angstrom
-  max_radial: 8  # Exclusive
-  max_angular: 5  # Inclusive
-  atomic_gaussian_width: 0.3
-  radial_basis:
-    Gto: {}
-  cutoff_function:
-    ShiftedCosine:
+  cutoff:
+    radius: 3.0
+    smoothing:
+      type: ShiftedCosine
       width: 0.1
-  center_atom_weight: 1.0
-  radial_scaling:
-    Willatt2018:
+  density:
+    type: Gaussian
+    width: 0.3
+    scaling:
+      type: Willatt2018
       exponent: 7
       rate: 1
       scale: 2.0
+  basis:
+    type: TensorProduct
+    max_angular: 5
+    radial:
+      type: Gto
+      max_radial: 7
 
 # Number of CG tensor products to correlate spherical expansion
 N_CORRELATIONS: 1
