@@ -1,11 +1,11 @@
 from typing import List, Optional
 
 import metatensor.torch as mts
-import rascaline.torch
+import featomic.torch
 import torch
 from chemfiles import Atom, Frame
 from metatensor.torch.learn import ModuleMap
-from rascaline.torch import SoapPowerSpectrum
+from featomic.torch import SoapPowerSpectrum
 
 from rholearn.rholearn import train_utils
 from rholearn.utils import system
@@ -110,7 +110,7 @@ class SoapDosNet(torch.nn.Module):
         """
         if frame_idxs is None:
             frame_idxs = list(range(len(frames)))
-        systems = rascaline.torch.systems_to_torch(frames)
+        systems = featomic.torch.systems_to_torch(frames)
         soap = self._spherical_expansion_calc(systems)
         soap = soap.keys_to_properties(["neighbor_1_type", "neighbor_2_type"])
 

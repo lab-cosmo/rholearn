@@ -8,8 +8,8 @@ import metatensor.torch as mts
 import torch
 from chemfiles import Atom, Frame
 from metatensor.torch.learn import nn
-from rascaline.torch import SphericalExpansion
-from rascaline.torch.utils import DensityCorrelations
+from featomic.torch import SphericalExpansion
+from featomic.torch.utils import DensityCorrelations
 
 from rholearn.rholearn import mask, train_utils
 from rholearn.utils import system
@@ -40,7 +40,7 @@ class _DescriptorCalculator(torch.nn.Module):
         self._n_correlations = n_correlations
 
         if angular_cutoff is None:
-            max_angular = spherical_expansion_hypers["max_angular"] * (
+            max_angular = spherical_expansion_hypers["basis"]["max_angular"] * (
                 n_correlations + 1
             )
         else:
@@ -251,9 +251,10 @@ class RhoModel(torch.nn.Module):
 
         # Set metadata
         self._in_keys = _target_basis_set_to_in_keys(self._target_basis)
-        self._invariant_key_idxs = [
-            i for i, key in enumerate(self._in_keys) if key["o3_lambda"] == 0
-        ]
+        self._invariant_keys = mts.Labels(
+            ["o3_lambda", "o3_sigma"],
+            torch.tensor([[0, 1]], dtype=torch.int64),
+        )
         self._in_properties = _atom_types_to_descriptor_basis_in_properties(
             self._in_keys,
             self._descriptor_calculator,
@@ -288,7 +289,7 @@ class RhoModel(torch.nn.Module):
             init_layers.append(
                 nn.InvariantLayerNorm(
                     in_keys=self._in_keys,
-                    invariant_key_idxs=self._invariant_key_idxs,
+                    invariant_keys=self._invariant_keys,
                     in_features=[
                         len(in_props)
                         for key, in_props in zip(self._in_keys, self._in_properties)
@@ -302,7 +303,7 @@ class RhoModel(torch.nn.Module):
             init_layers.append(
                 nn.EquivariantLinear(
                     in_keys=self._in_keys,
-                    invariant_key_idxs=self._invariant_key_idxs,
+                    invariant_keys=self._invariant_keys,
                     in_features=[len(in_props) for in_props in self._in_properties],
                     out_properties=self._out_properties,
                     bias=True,
@@ -318,7 +319,7 @@ class RhoModel(torch.nn.Module):
                 args.update(
                     dict(
                         in_keys=self._in_keys,
-                        invariant_key_idxs=self._invariant_key_idxs,
+                        invariant_keys=self._invariant_keys,
                     )
                 )
                 if module_name == "EquivariantLinear":
