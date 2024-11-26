@@ -36,9 +36,17 @@ An equivariant model is then trained to predict coefficients $d_b^{\text{ML}}$ t
 
 For one of the original workflows for predicting the electron density under the density-fitting framework, readers are referred to [*SALTED*](https://github.com/andreagrisafi/SALTED). This uses a symmetry-adapted Gaussian process regression (SA-GPR) method via sparse kernel ridge regression to learn and predict $d_b^{\text{ML}}$.
 
+## Electronic density of states (DOS)
+
+The electronic density of states (DOS) provides information regarding the distribution of available electronic states in a material. With the DOS of a material, one is able to infer many optical and electronic properties of a material, such as its electrical conductivity, bandgap and absorption spectra. This allows the DOS to be relevant for material design as a tool to screen potential material candidates. The DOS is typically computed using DFT, but as mentioned above, DFT is prohibitively expensive for large and complex systems.
+
+Machine learning has also been applied to the DOS and a variety of representatinos have been developed for the DOS. Thus far, there have been three main approaches, 1) Projecting the DOS on a discretized energy grid, 2) Projecting the integrated DOS on a discretized energy grid and, 3) Decomposing the DOS using Principal Component Analysis (PCA). Unlike the electronic density, the DOS is invariant to rotations and thus an invariant model can be employed to predict the DOS under any of the three representations.
+
 # Goals
 
 `rholearn` also operates under the density fitting approach. The nuclear coordinates $\to$ electonic density mapping is learned *via* a feature-based equivariant neural network whose outputs are the predicted coefficients. Currently, `rholearn` is integrated with the electronic structure code `FHI-aims` for both data generation and building of real-space fields from predicted coefficients.
+
+`doslearn` represents the DOS by projecting it on a discretized energy grid. Additionally, a locality ansatz is employed whereby the global DOS of a structure, is expressed as a sum of local contributions from each atomic environment. 
 
 `rholearn` aims to improve the scalability of the density-fitting approach to learning electronic densities. It is built on top of a modular software ecosystem, with the following packages forming the main components of the workflow:
 
