@@ -1,11 +1,11 @@
 from typing import List, Optional
 
-import metatensor.torch as mts
 import featomic.torch
+import metatensor.torch as mts
 import torch
 from chemfiles import Atom, Frame
-from metatensor.torch.learn import ModuleMap
 from featomic.torch import SoapPowerSpectrum
+from metatensor.torch.learn import ModuleMap
 
 from rholearn.rholearn import train_utils
 from rholearn.utils import system

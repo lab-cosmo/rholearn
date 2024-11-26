@@ -7,9 +7,9 @@ from typing import Callable, List, Optional, Tuple, Union
 import metatensor.torch as mts
 import torch
 from chemfiles import Atom, Frame
-from metatensor.torch.learn import nn
 from featomic.torch import SphericalExpansion
 from featomic.torch.utils import DensityCorrelations
+from metatensor.torch.learn import nn
 
 from rholearn.rholearn import mask, train_utils
 from rholearn.utils import system
