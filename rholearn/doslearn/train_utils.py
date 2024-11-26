@@ -41,7 +41,7 @@ def get_dataset(
             mts.slice(
                 descriptors,
                 "samples",
-                mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
+                selection=mts.Labels(["system"], torch.tensor([A]).reshape(-1, 1)),
             )
             for A in frame_idxs
         ]

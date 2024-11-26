@@ -4,8 +4,8 @@ from os.path import join
 
 import torch
 
-from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.options import get_options
+from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.utils import io, system
 
 
@@ -44,12 +44,14 @@ def eval():
     # ===== Get the test data =====
 
     io.log(log_path, "Get the test IDs and frames")
-    _, _, test_id = rho_train_utils.crossval_idx_split(  # cross-validation split of idxs
-        frame_idxs=frame_idxs,
-        n_train=ml_options["N_TRAIN"],
-        n_val=ml_options["N_VAL"],
-        n_test=ml_options["N_TEST"],
-        seed=ml_options["SEED"],
+    _, _, test_id = (
+        rho_train_utils.crossval_idx_split(  # cross-validation split of idxs
+            frame_idxs=frame_idxs,
+            n_train=ml_options["N_TRAIN"],
+            n_val=ml_options["N_VAL"],
+            n_test=ml_options["N_TEST"],
+            seed=ml_options["SEED"],
+        )
     )
     test_frames = [all_frames[A] for A in test_id]
 
@@ -68,10 +70,10 @@ def eval():
     t0_infer = time.time()
     test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)  # noqa: F841
     dt_infer = time.time() - t0_infer
+    io.log(log_path, rho_train_utils.report_dt(dt_infer, "Model inference complete"))
     io.log(
-        log_path, rho_train_utils.report_dt(dt_infer, "Model inference complete")
+        log_path, rho_train_utils.report_dt(dt_infer / len(test_id), "   or per frame")
     )
-    io.log(log_path, rho_train_utils.report_dt(dt_infer / len(test_id), "   or per frame"))
 
     # TODO: evaluate some metrics, and save predictions?
     # ...
@@ -82,7 +84,9 @@ def eval():
 
     # ===== Finish =====
     dt_eval = time.time() - t0_eval
-    io.log(log_path, rho_train_utils.report_dt(dt_eval, "Evaluation complete (total time)"))
+    io.log(
+        log_path, rho_train_utils.report_dt(dt_eval, "Evaluation complete (total time)")
+    )
 
 
 def _get_options():

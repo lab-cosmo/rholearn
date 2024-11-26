@@ -121,6 +121,7 @@ def frame_to_atomistic_system(
         types=torch.tensor(get_types(frame), dtype=torch.int32, device=device),
         positions=torch.tensor(frame.positions, dtype=dtype, device=device),
         cell=torch.tensor(frame.cell.matrix, dtype=dtype, device=device),
+        pbc=torch.tensor([not all(row == 0) for row in frame.cell.matrix]),
     )
 
 
