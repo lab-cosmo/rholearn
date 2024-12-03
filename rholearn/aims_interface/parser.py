@@ -590,6 +590,10 @@ def process_ri_outputs(
 
     # Load to numpy
     coeffs_numpy = np.loadtxt(join(aims_output_dir, "ri_restart_coeffs.out"))
+    
+    # Save to numpy to compress, then remove the original text file
+    np.save(join(aims_output_dir, "ri_restart_coeffs.npy"), coeffs_numpy)
+    os.remove(join(aims_output_dir, "ri_restart_coeffs.out"))
 
     # Standard block sparse format
     coeffs_mts = convert.coeff_vector_ndarray_to_tensormap(
@@ -607,6 +611,10 @@ def process_ri_outputs(
     # Load to numpy
     projs_numpy = np.loadtxt(join(aims_output_dir, "ri_projections.out"))
 
+    # Save to numpy to compress, then remove the original text file
+    np.save(join(aims_output_dir, "ri_projections.npy"), projs_numpy)
+    os.remove(join(aims_output_dir, "ri_projections.out"))
+
     # Standard block sparse format
     projs_mts = convert.coeff_vector_ndarray_to_tensormap(
         frame,
@@ -622,6 +630,10 @@ def process_ri_outputs(
 
     # Load the overlap matrix to a full square matrix
     ovlp_numpy = load_ovlp_matrix_to_square_matrix_numpy(aims_output_dir, "ri_ovlp.out")
+
+    # Save to numpy to compress, then remove the original text file
+    np.save(join(aims_output_dir, "ri_ovlp.npy"), ovlp_numpy)
+    os.remove(join(aims_output_dir, "ri_ovlp.out"))
 
     # Convert to TensorMap and save
     ovlp = convert.overlap_matrix_ndarray_to_tensormap(
@@ -685,6 +697,29 @@ def process_ri_outputs(
         {"lmax": lmax, "nmax": nmax},
     )
 
+    # ===== Scalar fields =====
+
+    # Load the scalar field data
+    partition_tab = np.loadtxt(join(aims_output_dir, "partition_tab.out"))
+    rho_scf = np.loadtxt(join(aims_output_dir, "rho_scf.out"))
+    rho_rebuilt_ri = np.loadtxt(join(aims_output_dir, "rho_rebuilt_ri.out"))
+
+    # Check grid consistency
+    assert np.all(partition_tab[:, :3] == rho_scf[:, :3])
+    assert np.all(partition_tab[:, :3] == rho_rebuilt_ri[:, :3])
+    assert np.all(rho_scf[:, :3] == rho_rebuilt_ri[:, :3])
+
+    # Compress with numpy. For the densities, just store the field values
+    np.save(join(aims_output_dir, "partition_tab.npy"), partition_tab)
+    np.save(join(aims_output_dir, "rho_scf.npy"), rho_scf[:, 3])
+    np.save(join(aims_output_dir, "rho_rebuilt_ri.npy"), rho_rebuilt_ri[:, :3])
+
+    # Remove original text files
+    os.remove(join(aims_output_dir, "partition_tab.out"))
+    os.remove(join(aims_output_dir, "rho_scf.out"))
+    os.remove(join(aims_output_dir, "rho_rebuilt_ri.out"))
+    
+    return
 
 def process_df_error(
     aims_output_dir: str,
@@ -701,36 +736,21 @@ def process_df_error(
     ``masked_system_type`` is specified.
     """
     # Load fields
-    input = np.loadtxt(join(aims_output_dir, "rho_rebuilt_ri.out"))
-    target = np.loadtxt(join(aims_output_dir, "rho_scf.out"))
-    grid = np.loadtxt(join(aims_output_dir, "partition_tab.out"))
+    input = np.load(join(aims_output_dir, "rho_rebuilt_ri.npy"))
+    target = np.load(join(aims_output_dir, "rho_scf.npy"))
+    grid = np.load(join(aims_output_dir, "partition_tab.npy"))
 
     # Build a coordinate mask, if applicable
     if masked_system_type is not None:
-        input = input[
-            mask.get_point_indices_by_region(
-                points=input[:, :3],
-                masked_system_type=masked_system_type,
-                region="active",
-                **kwargs,
-            )
-        ]
-        target = target[
-            mask.get_point_indices_by_region(
-                points=target[:, :3],
-                masked_system_type=masked_system_type,
-                region="active",
-                **kwargs,
-            )
-        ]
-        grid = grid[
-            mask.get_point_indices_by_region(
+        grid_mask = mask.get_point_indices_by_region(
                 points=grid[:, :3],
                 masked_system_type=masked_system_type,
                 region="active",
                 **kwargs,
             )
-        ]
+        input = input[grid_mask]
+        target = target[grid_mask]
+        grid = grid[grid_mask]
 
     # Calc errors
     abs_error, norm = fields.field_absolute_error(
@@ -758,7 +778,6 @@ def process_df_error(
     )
 
     return
-
 
 def check_converged(aims_output_dir: str) -> bool:
     """
@@ -909,16 +928,16 @@ def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = Non
     """
     Parses the angle resolved PDOS data in files named, for instance:
 
-        "atom_proj_dos_Au0001.dat"
+        "atom_proj_dos_tetrahedron_Au0001.dat"
 
     and produced by setting the FHI-aims tag `output` to, for instance:
 
-        "atom_proj_dos -30 5 1000 0.3",
+        "atom_proj_dos_tetrahedron -30 5 1000 0.3",
 
     where the arguments are the energy range, number of points, and Gaussian width.
 
     Returns a dictionary of the parsed data, where each key is a (symbol, l) tuple, and
-    the values are a dictionary of PDOS arrays indexed by atom index.
+    the values are a dictionary of PDOS arrays indexed by atom index (NOTE: 1-indexing).
 
     ``frame`` can be optionally passed. If none, it is read from "geometry.in" in
     ``aims_output_dir``.
@@ -932,7 +951,7 @@ def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = Non
 
         # Read atom PDOS file
         pdos_atom = np.loadtxt(
-            join(aims_output_dir, f"atom_proj_dos_{sym}{str(i).zfill(4)}.dat")
+            join(aims_output_dir, f"atom_proj_dos_tetrahedron_{sym}{str(i).zfill(4)}.dat")
         )
 
         # Store the energy array only once
@@ -940,13 +959,13 @@ def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = Non
             energy = pdos_atom[:, 0]
 
         # Store total PDOS (non-angle resolved)
-        if (sym, "total") not in pdos_data:
-            pdos_data[(sym, "total")] = {}
-        pdos_data[(sym, "total")][i] = pdos_atom[:, 1]
+        if ("total", sym) not in pdos_data:
+            pdos_data[("total", sym)] = {}
+        pdos_data[("total", sym)][i] = pdos_atom[:, 1]
 
         for o3_lambda in range(pdos_atom.shape[1] - 2):
-            if (sym, o3_lambda) not in pdos_data:
-                pdos_data[(sym, o3_lambda)] = {}
-            pdos_data[(sym, o3_lambda)][i] = pdos_atom[:, o3_lambda + 2]
+            if (o3_lambda, sym) not in pdos_data:
+                pdos_data[(o3_lambda, sym)] = {}
+            pdos_data[(o3_lambda, sym)][i] = pdos_atom[:, o3_lambda + 2]
 
     return energy, pdos_data

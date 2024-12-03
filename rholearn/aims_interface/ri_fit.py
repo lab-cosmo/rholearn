@@ -107,7 +107,7 @@ def setup_ri_fit_for_frame(frame_idx: int) -> None:
     frame = system.read_frames_from_xyz(dft_options["XYZ"])[frame_idx]
 
     # Retype masked atoms for the RI calculation
-    if dft_options["MASK"] is not None:
+    if len(dft_options["MASK"]) != 0:
         frame = mask.retype_frame(frame, **dft_options["MASK"])
 
     # Make RI dir and copy settings file

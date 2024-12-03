@@ -248,83 +248,54 @@ def _timestamp() -> str:
     """Return a timestamp string in format YYYY-MM-DD-HH:MM:SS."""
     return datetime.datetime.today().strftime("%Y-%m-%d-%H:%M:%S")
 
-
 def _get_aims_cube_edges_slab(
-    slab: Frame, n_points: tuple, z_min: float = None, z_max: float = None
-) -> Dict[str, str]:
+    slab, n_points: tuple, z_min: float = None, z_max: float = None
+) -> dict:
     """
-    Returns FHI-aims keywords for specifying the cube file edges in control.in. The x
-    and y edges are taken to be the lattice vectors of the slab.
+    Returns FHI-aims keywords for specifying the cube file edges in control.in.
+    This version supports general triclinic lattice cells.
 
-    The edges of the total cube are calculated as follows, assuming that the slab is
-    oriented along the z-axis. The x and y edges are given by the cell lengths along
-    these axes.
+    Parameters:
+        slab: ASE Atoms object with triclinic or orthogonal lattice.
+        n_points: Tuple of integers, specifying the number of points along x, y, z.
+        z_min: Minimum z coordinate for the cube edge (optional).
+        z_max: Maximum z coordinate for the cube edge (optional).
 
-    As the slab is also assumed to have a large vacuum region along the z-axis, the
-    z-edge is calculated as the maximum bounding length of atomic positions, plus 5
-    Angstrom either side. This is unless `z_min` and/or `z_max` are passed, which
-    override the max/min z-coords of the atomic positions.
-
-    Returned is a dict like:
-        {"cubes": "cube origin 1.59 9.85 12.80 \n"
-            + "cube edge 101 0.15 0.0 1.0 \n",
-            + "cube edge 101 0.0 0.15 0.0 \n",
-            + "cube edge 101 0.0 0.0 0.15 \n",
-        }
-    as required for writing a control.in using the ASE interface.
+    Returns:
+        dict: Contains the formatted string for cube origin and edges in control.in.
     """
-    if np.all(slab.cell.matrix == 0.0):
+    if np.all(slab.cell.lengths == 0):
         raise ValueError("Slab must have periodic boundary conditions")
 
-    # Check cell is cubic
-    if not np.all(
-        [
-            param == 0
-            for param in [
-                slab.cell.matrix[0, 1],
-                slab.cell.matrix[0, 2],
-                slab.cell.matrix[1, 0],
-                slab.cell.matrix[1, 2],
-                slab.cell.matrix[2, 0],
-                slab.cell.matrix[2, 1],
-            ]
-        ]
-    ):
-        raise ValueError(f"Cell not cubic: {slab.cell.matrix}")
+    # Get the lattice vectors from the slab
+    lattice_vectors = slab.cell.matrix
 
-    x_min = np.min(slab.positions[:, 0])
-    x_max = np.max(slab.positions[:, 0])
-    y_min = np.min(slab.positions[:, 1])
-    y_max = np.max(slab.positions[:, 1])
+    # Calculate the origin of the cube (usually center of the bounding box)
+    min_coords = np.min(slab.positions, axis=0)
+    max_coords = np.max(slab.positions, axis=0)
 
-    if z_min is None:
-        z_min = np.min(slab.positions[:, 2]) - 5
-    if z_max is None:
-        z_max = np.max(slab.positions[:, 2]) + 5
+    # Calculate step sizes for lattice vectors based on the number of points
+    steps = [lattice_vectors[i] / (n_points[i] - 1) for i in range(3)]
 
-    min_coord = np.array([x_min, y_min, z_min])
-    max_coord = np.array([x_max, y_max, z_max])
-    max_lengths = max_coord - min_coord
+    # Adjust z-axis using z_min and z_max if provided
+    if z_min is not None or z_max is not None:
+        min_z = np.min(slab.positions[:, 2]) if z_min is None else z_min
+        max_z = np.max(slab.positions[:, 2]) if z_max is None else z_max
+        z_range = max_z - min_z
+        steps[2] = slab.cell.matrix[2] * (z_range / slab.cell.lengths[2]) / (n_points[2] - 1)
+        min_coords[2] = min_z
+        max_coords[2] = max_z
 
-    # Take the x and y lattice vectors to be the length of the cube in these directions.
-    # For the z-direction, take the bounding box of nuclear positions.
-    max_lengths = [slab.cell.matrix[0, 0], slab.cell.matrix[1, 1], max_lengths[2]]
-    center = (min_coord + max_coord) / 2
+    origin = (max_coords + min_coords) / 2
+    # bounding_box_center = (max_coords + min_coords) / 2
+    # origin = bounding_box_center - np.array([steps[i][i] * (n_points[i] - 1) / 2 for i in range(3)])
 
-    return {
-        "cubes": f"cube origin {np.round(center[0], 3)} "
-        + f"{np.round(center[1], 3)} {np.round(center[2], 3)}"
-        + "\n"
-        + f"cube edge {n_points[0]} "
-        + f"{np.round(max_lengths[0] / (n_points[0] - 1), 3)} 0.0 0.0"
-        + "\n"
-        + f"cube edge {n_points[1]} 0.0 "
-        + f"{np.round(max_lengths[1] / (n_points[1] - 1), 3)} 0.0"
-        + "\n"
-        + f"cube edge {n_points[2]} 0.0 0.0 "
-        + f"{np.round(max_lengths[2] / (n_points[2] - 1), 3)}"
-        + "\n",
-    }
+    # Formatting the output for control.in
+    cube_string = f"cube origin {origin[0]:.3f} {origin[1]:.3f} {origin[2]:.3f}\n"
+    for i in range(3):
+        cube_string += f"cube edge {n_points[i]} {steps[i][0]:.3f} {steps[i][1]:.3f} {steps[i][2]:.3f}\n"
+
+    return {"cubes": cube_string}
 
 
 def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:

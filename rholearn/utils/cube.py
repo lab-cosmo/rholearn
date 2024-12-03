@@ -98,58 +98,48 @@ class RhoCube(cube_tools.cube):
         xy_tiling: List[int] = None,
     ) -> np.ndarray:
         """
-        Calculates the height profile of the density in `self.data` at the target
-        `isovalue`, within the specified `tolerance`.
-
-        For each XY point, the Z-coordinates of the cube array are densified by a factor
-        of `grid_multiplier`, then interpolated with splines to find the Z-coordinates
-        that match the taregt `isovalue` within the specified `tolerance`.
-
-        The intended use of this function is for visualizing slab surface densities. As
-        such, the surface is assumed to be aligned at Z=0, with the slab at negative
-        Z-coordinates. Any Z-coordinate that is outside the range of `min_z` and
-        `max_z` is ignored and returned as NaN.
+        Calculates the height profile of the density at the target `isovalue`, within the specified `tolerance`.
+        Tiles the grid if specified and then transforms the coordinates to the physical space.
         """
+        # Define cell matrix for transformations
+        cell_matrix = np.array([self.X, self.Y, self.Z])
+        # Initialize the height map with NaN values
+        height_map = np.full((self.NX, self.NY), np.nan)
 
-        height_map = np.ones((self.NX, self.NY)) * np.nan
-        for i in range(self.data.shape[0]):
-            for j in range(self.data.shape[1]):
-
-                # Spline this 1D array of values, build a cubic spline
+        # Compute the height map in grid coordinates
+        for i in range(self.NX):
+            for j in range(self.NY):
                 z_grid = (np.arange(self.NZ) * self.Z[2]) + self.origin[2]
                 spliner = CubicSpline(z_grid, self.data[i, j, :])
+                z_grid_fine = np.linspace(z_grid.min(), z_grid.max(), self.NZ * grid_multiplier)
+                match_idxs = np.where(np.abs(spliner(z_grid_fine) - isovalue) < tolerance)[0]
+                if match_idxs.size > 0:
+                    match_idx = match_idxs[np.argmax(z_grid_fine[match_idxs])]
+                    z_height = z_grid_fine[match_idx]
+                    if (z_min is None or z_height >= z_min) and (z_max is None or z_height <= z_max):
+                        height_map[i, j] = z_height
 
-                # Build a finer grid for interpolation
-                z_grid_fine = np.linspace(
-                    z_grid.min(), z_grid.max(), self.NZ * grid_multiplier
-                )
-
-                # Find the idxs of the values that match the isovalue, within the
-                # tolerance
-                match_idxs = np.where(
-                    np.abs(spliner(z_grid_fine) - isovalue) < tolerance
-                )[0]
-                if len(match_idxs) == 0:
-                    continue
-
-                # Find the idx of the matching value with the greatest z-coordinate
-                match_idx = match_idxs[np.argmax(z_grid_fine[match_idxs])]
-                z_height = z_grid_fine[match_idx]
-                if (z_min is not None and z_height < z_min) or (
-                    z_max is not None and z_height > z_max
-                ):
-                    continue
-                height_map[i, j] = z_grid_fine[match_idx]
-
+        # Check for tiling settings
         if xy_tiling is None:
             xy_tiling = [1, 1]
-        assert len(xy_tiling) == 2
 
-        X = (np.arange(self.NX * xy_tiling[0]) * self.X[0]) + self.origin[0]
-        Y = (np.arange(self.NY * xy_tiling[1]) * self.Y[1]) + self.origin[1]
-        Z = np.tile(height_map, reps=xy_tiling)
+        # Tile the height map
+        height_map_tiled = np.tile(height_map, xy_tiling)
 
-        return X, Y, Z.T
+        # Generate tiled indices to transform to physical coordinates
+        tiled_NX, tiled_NY = self.NX * xy_tiling[0], self.NY * xy_tiling[1]
+        X_indices_tiled, Y_indices_tiled = np.meshgrid(np.arange(tiled_NX), np.arange(tiled_NY), indexing='ij')
+        Z_indices_tiled = np.full_like(X_indices_tiled, fill_value=0)  # Z is not used for tiling
+
+        # Transform tiled indices to physical coordinates
+        tiled_grid_indices = np.stack([X_indices_tiled, Y_indices_tiled, Z_indices_tiled], axis=-1)
+        tiled_physical_coords = np.einsum('ij,klj->kli', cell_matrix, tiled_grid_indices)
+
+        # Extract X and Y coordinates
+        tiled_X = tiled_physical_coords[..., 0]
+        tiled_Y = tiled_physical_coords[..., 1]
+
+        return tiled_X, tiled_Y, height_map_tiled
 
     def show_volumetric(self, isovalue: float = 0.01):
         """

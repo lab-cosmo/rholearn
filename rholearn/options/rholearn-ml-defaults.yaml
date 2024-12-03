@@ -3,39 +3,30 @@
 SEED: 42
 
 # Rascaline SphericalExpansion hyperparameters
-SPHERICAL_EXPANSION_HYPERS:
-  cutoff: 3.0  # Angstrom
-  max_radial: 8  # Exclusive
-  max_angular: 5  # Inclusive
-  atomic_gaussian_width: 0.3
-  radial_basis:
-    Gto: {}
-  cutoff_function:
-    ShiftedCosine:
-      width: 0.1
-  center_atom_weight: 1.0
-  radial_scaling:
-    Willatt2018:
-      exponent: 7
-      rate: 1
-      scale: 2.0
+DESCRIPTOR_HYPERS:
+  descriptor_type: null
+  angular_cutoff: null
+  use_pca: null
 
-# Number of CG tensor products to correlate spherical expansion
-N_CORRELATIONS: 1
+# Pretraining with analytical weights
+PRETRAIN: false
+PRETRAIN_ARGS: {}
 
-# Max angular momentum to compute in CG products. Anything <
-# SPHERICAL_EXPANSION_HYPERS["max_angular"] * (N_CORRELATIONS + 1) loses information but
-# speeds up computation.
-ANGULAR_CUTOFF: null
+# NN Layers
+ARCHITECTURE:
+  linear:
+    - Linear: {}
 
-# Whether to pass invariant blocks of the descriptor through a learnable layer norm
-DESCRIPTOR_LAYER_NORM: False
+# Freeze parameters of certain modules
+FREEZE_MODULES: {}
 
-# Neural network architecture
-NN_LAYERS: null
+# Standardize targets
+STANDARDIZE_TARGETS: false
 
-# Pretrained model for fine-tuning
-PRETRAINED_MODEL: null
+# Load an existing model for fine-tuning
+LOAD_MODEL:
+  path: null
+  add_modules: {}
 
 # Options for the training and validation loss functions
 LOSS_FN:
@@ -54,44 +45,37 @@ OVERLAP_CUTOFF: null
 # Threshold value to sparsify the overlap matrix
 OVERLAP_THRESHOLD: null
 
-# Adam optimizer
+# Optimizer
 OPTIMIZER: Adam
 OPTIMIZER_ARGS:
   lr: 0.1
 
-# ReduceLROnPlateu scheduler
-SCHEDULER: ReduceLROnPlateau
-SCHEDULER_ARGS:
-  mode: min
-  factor: 0.1
-  patience: 5  # NOTE: this is per validation step
-  threshold: 0.001
-  threshold_mode: rel
-  
-# StepLR scheduler
-# SCHEDULER: StepLR
-# SCHEDULER_ARGS:
-#   step_size: 10  # NOTE: this is per validation step
-#   gamma: 0.1
-
+# Scheduler
+SCHEDULER: null
+SCHEDULER_ARGS: {}
 MIN_LR: 0.000001
 
-# For training the model
+# Training options
 TRAIN:
   device: cpu
   dtype: float64  # important for model accuracy
-  batch_size: 1
+  batch_size: null
   n_epochs: 501  # number of total epochs to run
   restart_epoch: null  # epoch of last saved checkpoint, or null for no restart
   val_interval: 50  # validate every x intervals
   log_interval: 50  # epoch interval at which to log metrics
   checkpoint_interval: 50  # save model and optimizer state every x intervals
 
-# For evaluating a model checkpoint
+# Evaluation options
 EVAL:
   eval_epoch: best
+  subset_size: null
   target_type: [ri, scf]  # evaluate against "scf" or "ri" reference, or both
   stm: 
     mode: null
     options: {}
 
+
+# Run an overfitting experiment. This uses a single (and the same) structure in the
+# training and validation datasets.
+OVERFIT: false

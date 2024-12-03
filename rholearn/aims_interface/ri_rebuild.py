@@ -38,7 +38,7 @@ def run_ri_rebuild() -> None:
     frames = [frames[A] for A in frame_idxs]
 
     # Retype masked atoms for the RI calculation
-    if dft_options.get("MASK") is not None:
+    if len(dft_options["MASK"]) != 0:
         frames = mask.retype_frame(
             frames,
             **dft_options["MASK"],

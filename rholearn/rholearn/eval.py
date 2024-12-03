@@ -69,6 +69,11 @@ def eval():
         n_test=ml_options["N_TEST"],
         seed=ml_options["SEED"],
     )
+
+    # Now take a subset of the test IDs, if applicable
+    if ml_options["EVAL"]["subset_size"] is not None:
+        test_id = test_id[:ml_options["EVAL"]["subset_size"]]
+
     io.log(log_path, f"    Test system ID: {test_id}")
     test_frames = [all_frames[A] for A in test_id]
 
@@ -108,9 +113,11 @@ def eval():
         io.log(log_path, "Rebuild real-space field(s) in FHI-aims")
 
         # Convert predicted coefficients to flat numpy arrays
-        if model._masked_system_type is not None:
+        if model._descriptor_calculator._masked_system_type is not None:
             test_frames = mask.retype_frame(
-                test_frames, model._masked_system_type, **model._mask_kwargs
+                test_frames,
+                model._descriptor_calculator._masked_system_type,
+                **model._descriptor_calculator._mask_kwargs
             )
         test_preds_numpy = [
             convert.coeff_vector_blocks_to_flat(
@@ -163,7 +170,7 @@ def eval():
             log_path,
             f"Evaluate MAE versus reference field type(s): {target_types}",
         )
-        if model._masked_system_type is not None:
+        if model._descriptor_calculator._masked_system_type is not None:
             io.log(
                 log_path, "Evaluting errors on active region coordinates only"
             )
@@ -175,21 +182,21 @@ def eval():
             rho_ml = np.loadtxt(join(rebuild_dir(A), "rho_rebuilt_ri.out"))
 
             # Build a coordinate mask, if applicable
-            if model._masked_system_type is not None:
+            if model._descriptor_calculator._masked_system_type is not None:
                 rho_ml = rho_ml[
                     mask.get_point_indices_by_region(
                         points=rho_ml[:, :3],
-                        masked_system_type=model._masked_system_type,
+                        masked_system_type=model._descriptor_calculator._masked_system_type,
                         region="active",
-                        **model._mask_kwargs,
+                        **model._descriptor_calculator._mask_kwargs,
                     )
                 ]
                 grid = grid[
                     mask.get_point_indices_by_region(
                         points=grid[:, :3],
-                        masked_system_type=model._masked_system_type,
+                        masked_system_type=model._descriptor_calculator._masked_system_type,
                         region="active",
-                        **model._mask_kwargs,
+                        **model._descriptor_calculator._mask_kwargs,
                     )
                 ]
 
@@ -202,13 +209,13 @@ def eval():
                     rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.out"))
 
                 # Build a coordinate mask, if applicable
-                if model._masked_system_type is not None:
+                if model._descriptor_calculator._masked_system_type is not None:
                     rho_ref = rho_ref[
                         mask.get_point_indices_by_region(
                             points=rho_ref[:, :3],
-                            masked_system_type=model._masked_system_type,
+                            masked_system_type=model._descriptor_calculator._masked_system_type,
                             region="active",
-                            **model._mask_kwargs,
+                            **model._descriptor_calculator._mask_kwargs,
                         )
                     ]
 

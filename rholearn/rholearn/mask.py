@@ -423,7 +423,7 @@ def sparsify_overlap_matrix(
     return mts.TensorMap(overlap_matrix.keys, new_blocks)
 
 
-def drop_non_active_overlaps(
+def _drop_non_active_overlaps(
     frame: Frame,
     masked_system_type: str,
     overlap_matrix: Union[metatensor.TensorMap, metatensor.torch.TensorMap],

@@ -11,7 +11,7 @@ from typing import Callable, List, NamedTuple, Optional, Tuple, Union
 import metatensor.torch as mts
 import numpy as np
 import torch
-from chemfiles import Frame
+from chemfiles import Atom, Frame
 from metatensor.torch.learn.data import DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
@@ -52,6 +52,99 @@ def load_tensormap_to_torch(
     """Loads a TensorMap from file and converts its backend to torch."""
     return mts.load(path).to(dtype=dtype, device=device)
 
+def load_and_process_overlap(
+    frame_idx: int,
+    frame: Frame,
+    load_dir: callable,
+    descriptor_calculator: torch.nn.Module,
+    loss_fn: torch.nn.Module,
+    dtype: torch.dtype,
+    device: str,
+    log_path: str,
+    overlap_cutoff: Optional[float],
+    overlap_threshold: Optional[float],
+    save_dir: Optional[callable] = None,
+) -> None:
+    """
+    Loads the overlap from disk and pre-processes it in various ways, according to input
+    settings:
+
+        - Neighbor list cutoff
+        - Conditioning
+        - Sparsifying by removing overlaps smaller than a threshold
+        - Masking by atom types
+    """
+    # Load overlap from disk
+    overlap = load_tensormap_to_torch(
+        join(load_dir(frame_idx), "ri_ovlp.npz"), dtype=dtype, device=device
+    )
+
+    # Drop empty blocks that may be present
+    overlap = mask._drop_empty_blocks(overlap, "torch")
+
+    # Apply a cutoff to the overlap matrices if applicable
+    if overlap_cutoff is not None:
+        overlap = mask.cutoff_overlap_matrix(
+            [frame],
+            [frame_idx],
+            overlap_matrix=overlap,
+            cutoff=overlap_cutoff,
+            drop_empty_blocks=True,
+            backend="torch",
+        )
+
+    # Condition overlaps if applicable
+    if loss_fn._conditioner is not None:
+        overlap = condition_overlap(overlap, loss_fn._conditioner)
+
+    # Remove overlaps that are below a certain threshold value, if applicable
+    if overlap_threshold is not None:
+        overlap = mask.sparsify_overlap_matrix(
+            overlap_matrix=overlap,
+            sparsity_threshold=overlap_threshold,
+            drop_empty_blocks=True,
+            backend="torch",
+        )
+
+    # Mask overlaps
+    if descriptor_calculator._masked_system_type is not None:
+        atom_idxs_to_keep = list(
+            mask.get_point_indices_by_region(
+                points=frame.positions,
+                masked_system_type=descriptor_calculator._masked_system_type,
+                region="active",
+                **descriptor_calculator._mask_kwargs,
+            )
+        ) + list(
+            mask.get_point_indices_by_region(
+                points=frame.positions,
+                masked_system_type=descriptor_calculator._masked_system_type,
+                region="buffer",
+                **descriptor_calculator._mask_kwargs,
+            )
+        )
+        overlap = mask.mask_overlap_matrix(
+            overlap,
+            atom_idxs_to_keep=atom_idxs_to_keep,
+            drop_empty_blocks=True,
+            backend="torch",
+        )
+        # And remove buffer-buffer overlaps
+        # overlap = [
+        #     mask._drop_non_active_overlaps(
+        #         frame,
+        #         descriptor_calculator._masked_system_type,
+        #         ovlp,
+        #         "torch",
+        #         **descriptor_calculator._mask_kwargs,
+        #     )
+        #     for frame, ovlp in zip(frames, overlap)
+        # ]
+
+    # Return a copy so that any sliced dimensions are released from memory
+    return overlap.copy()
+
+
 def condition_overlap(overlap_matrix: mts.TensorMap, conditioner: float) -> mts.TensorMap:
     """
     Conditions the overlap matrix by adding the identity matirx, scaled by the specified
@@ -64,19 +157,149 @@ def condition_overlap(overlap_matrix: mts.TensorMap, conditioner: float) -> mts.
         assert block.values.shape[1] == block.values.shape[2]
         dim = block.values.shape[1]
 
-        for sample_i, sample in block.samples:
+        for sample_i, sample in enumerate(block.samples):
             if sample["atom_1"] != sample["atom_2"]:
                 continue
             
-            block.values[sample_i] *= torch.eye(dim) * conditioner
+            block.values[sample_i] += (torch.eye(dim) * conditioner)
 
     return overlap_matrix
+
+def get_tensor_std(tensor: mts.TensorMap) -> mts.TensorMap:
+    """
+    For each block, computes the norm over components and then a standard deviation over
+    samples. Scales this by the length of the ISC (i.e. 2l + 1). Stores the resulting
+    vector of length `len(block.properties)` in a TensorBlock, and returns the total
+    result in a TensorMap.
+    """
+    std_blocks = []
+    for key, block in tensor.items():
+
+        std_values = torch.std(
+            torch.norm(block.values, dim=1),
+            dim=0
+        ) * (2 * key["o3_lambda"] + 1)
+        std_blocks.append(
+            mts.TensorBlock(
+                samples=mts.Labels.single(),
+                components=[],
+                properties=block.properties,
+                values=std_values.reshape(1, -1)
+            )
+        )
+
+    return mts.TensorMap(tensor.keys, std_blocks)
+
+def standardize_tensor(
+    tensor: mts.TensorMap, standardizer: mts.TensorMap
+) -> mts.TensorMap:
+    """
+    Standardizes the input ``tensor`` using the ``standardizer`` layer.
+    """
+    for key, block in tensor.items():
+        block.values[:] /= standardizer.block(key).values
+
+    return tensor
+
+def unstandardize_tensor(
+    tensor: mts.TensorMap, standardizer: mts.TensorMap
+) -> mts.TensorMap:
+    """
+    Standardizes the input ``tensor`` using the ``standardizer`` layer.
+    """
+    for key, block in tensor.items():
+        block.values[:] *= standardizer.block(key).values
+
+    return tensor
+
+
+def target_basis_set_to_in_keys(target_basis: mts.Labels) -> mts.Labels:
+    """
+    Converts the basis set definition to the set of in_keys on which the model is
+    defined.
+
+    Returned is a Labels object with the names "o3_lambda" and "center_type" and values,
+    extracted from `target_basis`
+    """
+    assert target_basis.names[:2] == ["o3_lambda", "center_type"]
+    return mts.Labels(
+        names=["o3_lambda", "o3_sigma", "center_type"],
+        values=torch.tensor(
+            [
+                [o3_lambda, 1, center_type]
+                for o3_lambda, center_type in target_basis.values[:, :2]
+            ],
+            dtype=torch.int32,
+        ).reshape(-1, 3),
+    )
+
+
+def center_types_to_descriptor_basis_in_properties(
+    in_keys: mts.Labels,
+    descriptor_calculator: torch.nn.Module,
+) -> List[mts.Labels]:
+    """
+    Builds a dummy :py:class:`chemfiles.Frame` object from the global atom types in
+    `descriptor_calculator._center_types`, computes the descriptor for it, and extracts
+    the properties for each block indexed by the keys in `in_keys`.
+
+    For masked systems, the neighbor types are just the standard atom types, i.e. 1 and
+    6 for H and C, not 1006 for pseudo-C.
+    """
+    dummy_frames = []
+    for center_type in descriptor_calculator._center_types:
+        dummy_frame = Frame()
+        dummy_frame.add_atom(
+            Atom(
+                name=system.atomic_number_to_atomic_symbol(int(center_type)),
+                type=system.atomic_number_to_atomic_symbol(int(center_type)),
+            ),
+            position=[0, 0, 0],
+        )
+        dummy_frames.append(dummy_frame)
+    descriptor = descriptor_calculator(
+        frames=dummy_frames, mask_system=False,
+    )
+
+    return [descriptor[key].properties for key in in_keys]
+
+
+def target_basis_set_to_out_properties(
+    in_keys: mts.Labels,
+    target_basis: mts.Labels,
+) -> List[mts.Labels]:
+    """
+    Converts the basis set definition to a list of Labels objects corresponding to the
+    out properties for each key in `in_keys`.
+
+    Returned is a list of Labels, each of which enumerate the radial channels "n" for
+    each combination of o3_lambda and center_type in `in_keys`, extracted from
+    `target_basis`
+    """
+    out_properties = []
+    for key in in_keys:
+        o3_lambda, _, center_type = key
+
+        nmax_idxs = torch.all(
+            target_basis.values[:, :2] == torch.tensor([[o3_lambda, center_type]]),
+            dim=1,
+        )
+        assert torch.sum(nmax_idxs) == 1
+        nmax = target_basis.values[nmax_idxs, 2].item()
+
+        out_properties.append(
+            mts.Labels(
+                names=["n"],
+                values=torch.arange(nmax).reshape(-1, 1),
+            )
+        )
+    return out_properties
 
 
 def get_dataset(
     frames: List[Frame],
     frame_idxs: List[int],
-    model: torch.nn.Module,
+    descriptor_calculator: torch.nn.Module,
     loss_fn: torch.nn.Module,
     load_dir: Callable,
     overlap_cutoff: Optional[float],
@@ -84,10 +307,11 @@ def get_dataset(
     dtype: Optional[torch.dtype],
     device: Optional[str],
     log_path: str,
+    vectors_to_sparse_by_center_type: bool = False,
 ) -> torch.nn.Module:
     """
     Builds a dataset for the given ``frames``, using the ``model`` to pre-compute and
-    store decriptors.
+    store decriptors. Loads all the required target data.
     """
     if not isinstance(frame_idxs, list):
         frame_idxs = list(frame_idxs)
@@ -100,9 +324,10 @@ def get_dataset(
 
     # Descriptors
     io.log(log_path, "    Computing descriptors")
-    descriptor = model.compute_descriptor(
+    descriptor = descriptor_calculator(
         frames=frames,
         frame_idxs=frame_idxs,
+        mask_system=descriptor_calculator._masked_system_type is not None,
         reindex=True,
         split_by_frame=True,
     )
@@ -118,9 +343,10 @@ def get_dataset(
             for A in frame_idxs
         ]
         # Convert to block sparse only in "center_type" for loss evaluation
-        target_c = [
-            convert.coeff_vector_to_sparse_by_center_type(c, "torch") for c in target_c
-        ]
+        if vectors_to_sparse_by_center_type:
+            target_c = [
+                convert.coeff_vector_to_sparse_by_center_type(c, "torch") for c in target_c
+            ]
     else:
         target_c = [None] * len(frame_idxs)
 
@@ -143,65 +369,53 @@ def get_dataset(
 
     # Overlaps
     if "overlap" in loss_fn._required_data:
-        io.log(log_path, "    Loading overlaps")
-        overlap = [
-            load_tensormap_to_torch(
-                join(load_dir(A), "ri_ovlp.npz"), dtype=dtype, device=device
-            )
-            for A in frame_idxs
-        ]
-        # Apply a cutoff to the overlap matrices if applicable
+        io.log(log_path, "    Loading and processing overlaps")
         if overlap_cutoff is not None:
             io.log(log_path, f"    Cutting off overlaps at {overlap_cutoff} Ang")
-            overlap = [
-                mask.cutoff_overlap_matrix(
-                    [frame],
-                    [A],
-                    overlap_matrix=ovlp,
-                    cutoff=overlap_cutoff,
-                    drop_empty_blocks=True,
-                    backend="torch",
-                )
-                for frame, A, ovlp in zip(frames, frame_idxs, overlap)
-            ]
-        # Condition overlaps if applicable
         if loss_fn._conditioner is not None:
-            io.log(log_path, "    Conditioning overlaps")
-            overlap = [
-                condition_overlap(ovlp, loss_fn._conditioner) for ovlp in overlap
-            ]
-        # Remove overlaps that are below a certain threshold value, if applicable
+            io.log(log_path, f"    Conditioning overlaps with conditioner: {loss_fn._conditioner}")
         if overlap_threshold is not None:
-            io.log(log_path, f"    Sparsifying overlaps with threshold {overlap_threshold}")
-            overlap = [
-                mask.sparsify_overlap_matrix(
-                    overlap_matrix=ovlp,
-                    sparsity_threshold=overlap_threshold,
-                    drop_empty_blocks=True,
-                    backend="torch",
-                )
-                for ovlp in overlap
-            ]
+            io.log(log_path, f"    Sparsifying overlaps with threshold: {overlap_threshold}")
+        if descriptor_calculator._masked_system_type is not None:
+            io.log(log_path, "    Masking overlaps")
+        overlap = [
+            load_and_process_overlap(
+                A,
+                frame,
+                load_dir,
+                descriptor_calculator,
+                loss_fn,
+                dtype,
+                device,
+                log_path,
+                overlap_cutoff,
+                overlap_threshold,
+                save_dir=None,
+            )
+            for A, frame in zip(frame_idxs, frames)
+        ]
+
     else:
         overlap = [None] * len(frame_idxs)
 
     # Now mask all tensors if required, keeping active and buffer region atoms.
-    # Descriptors will already be masked.
-    if model._masked_system_type is not None:
+    # Descriptors will already be masked. Overlaps are masked in function
+    # `load_and_process_overlap`.
+    if descriptor_calculator._masked_system_type is not None:
         atom_idxs_to_keep = [
             list(
                 mask.get_point_indices_by_region(
                     points=frame.positions,
-                    masked_system_type=model._masked_system_type,
+                    masked_system_type=descriptor_calculator._masked_system_type,
                     region="active",
-                    **model._mask_kwargs,
+                    **descriptor_calculator._mask_kwargs,
                 )
             ) + list(
                 mask.get_point_indices_by_region(
                     points=frame.positions,
-                    masked_system_type=model._masked_system_type,
+                    masked_system_type=descriptor_calculator._masked_system_type,
                     region="buffer",
-                    **model._mask_kwargs,
+                    **descriptor_calculator._mask_kwargs,
                 )
             )
             for frame in frames
@@ -231,31 +445,6 @@ def get_dataset(
                 )
                 for targ_w, idxs in zip(target_w, atom_idxs_to_keep)
             ]
-
-        # Overlaps
-        if overlap[0] is not None:
-            io.log(log_path, "    Masking overlaps")
-            # Mask the overlap matrix
-            overlap = [
-                mask.mask_overlap_matrix(
-                    ovlp,
-                    atom_idxs_to_keep=idxs,
-                    drop_empty_blocks=False,
-                    backend="torch",
-                )
-                for ovlp, idxs in zip(overlap, atom_idxs_to_keep)
-            ]
-            # And remove buffer-buffer overlaps
-            # overlap = [
-            #     mask.drop_non_active_overlaps(
-            #         frame,
-            #         model._masked_system_type,
-            #         ovlp,
-            #         "torch",
-            #         **model._mask_kwargs,
-            #     )
-            #     for frame, ovlp in zip(frames, overlap)
-            # ]
 
     # Finally construct the dataset
     dataset = IndexedDataset(
@@ -392,6 +581,11 @@ def get_optimizer(model: torch.nn.Module, name: str, args: dict):
             filter(lambda p: p.requires_grad, model.parameters()),
             **args,
         )
+    elif name == "LBFGS":
+        optimizer = torch.optim.LBFGS(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            **args,
+        )
     else:
         raise ValueError(f"unsupported optimizer: {name}")
 
@@ -399,6 +593,8 @@ def get_optimizer(model: torch.nn.Module, name: str, args: dict):
 
 def get_scheduler(optimizer, name: str, args: dict):
     """Gets the scheduler by name"""
+    if name is None:
+        return None
     if name == "StepLR":
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, **args
@@ -418,7 +614,6 @@ def epoch_step(
     model,
     loss_fn,
     optimizer=None,
-    use_target_w: bool = True,
     check_metadata: bool = True,
 ) -> Tuple[torch.Tensor]:
     """
@@ -429,39 +624,85 @@ def epoch_step(
     if not training. If ``optimizer`` is None, this function does not zero optimizer
     gradiants, perform a backward pass, or update the model parameters.
     """
-    if use_target_w is not None:
-        use_target_w = True
     loss_epoch = 0
     n_samples_epoch = 0
     for batch in dataloader:
+        
+        if optimizer is None:  # i.e. for validation
 
-        if optimizer is not None:
-            optimizer.zero_grad()  # zero grads
+            input_c = model(  # forward pass
+                frames=list(batch.frame),
+                frame_idxs=batch.sample_id,
+                descriptor=batch.descriptor,
+                split_by_frame=False,
+                check_metadata=check_metadata,
+            )
+            input_c = convert.coeff_vector_to_sparse_by_center_type(
+                input_c, "torch"
+            )
+            batch_loss = loss_fn(  # compute loss
+                input_c=input_c,
+                target_c=batch.target_c,
+                target_w=batch.target_w,
+                overlap=batch.overlap,
+                check_metadata=check_metadata,
+            )
+            loss_epoch += batch_loss  # store loss
+            n_samples_epoch += len(batch.sample_id)  # store num frames
 
-        input_c = model(  # forward pass
-            frames=list(batch.frame),
-            frame_idxs=batch.sample_id,
-            descriptor=batch.descriptor,
-            split_by_frame=False,
-            check_metadata=check_metadata,
-        )
-        input_c = convert.coeff_vector_to_sparse_by_center_type(input_c, "torch")
+        else:
 
-        # Compute loss
-        batch_loss = loss_fn(
-            input_c=input_c,
-            target_c=batch.target_c,
-            target_w=batch.target_w if use_target_w else None,
-            overlap=batch.overlap,
-            check_metadata=check_metadata,
-        )
+            # If using LBFGS, the epoch step must be treated specially
+            if isinstance(optimizer, torch.optim.LBFGS):
 
-        if optimizer is not None:
-            batch_loss.backward()  # backward pass
-            optimizer.step()  # update parameters
+                def closure():
+                    optimizer.zero_grad()
+                    input_c = model(  # forward pass
+                        frames=list(batch.frame),
+                        frame_idxs=batch.sample_id,
+                        descriptor=batch.descriptor,
+                        split_by_frame=False,
+                        check_metadata=check_metadata,
+                    )
+                    input_c = convert.coeff_vector_to_sparse_by_center_type(
+                        input_c, "torch"
+                    )
+                    batch_loss = loss_fn(  # compute loss
+                        input_c=input_c,
+                        target_c=batch.target_c,
+                        target_w=batch.target_w,
+                        overlap=batch.overlap,
+                        check_metadata=check_metadata,
+                    )
+                    batch_loss.backward()  # backward pass
+                    return batch_loss
 
-        loss_epoch += batch_loss  # store loss
-        n_samples_epoch += len(batch.sample_id)
+                batch_loss = optimizer.step(closure)
+                loss_epoch += batch_loss  # store loss
+                n_samples_epoch += len(batch.sample_id)  # store num frames
+
+            # Standard torch GD-based optimizer
+            else:
+                optimizer.zero_grad()  # zero grads
+                input_c = model(  # forward pass
+                    frames=list(batch.frame),
+                    frame_idxs=batch.sample_id,
+                    descriptor=batch.descriptor,
+                    split_by_frame=False,
+                    check_metadata=check_metadata,
+                )
+                input_c = convert.coeff_vector_to_sparse_by_center_type(input_c, "torch")
+                batch_loss = loss_fn(  # compute loss
+                    input_c=input_c,
+                    target_c=batch.target_c,
+                    target_w=batch.target_w,
+                    overlap=batch.overlap,
+                    check_metadata=check_metadata,
+                )
+                batch_loss.backward()  # backward pass
+                optimizer.step()  # update parameters
+                loss_epoch += batch_loss  # store loss
+                n_samples_epoch += len(batch.sample_id)  # store num frames
 
     return loss_epoch / n_samples_epoch
 
@@ -483,7 +724,8 @@ def save_checkpoint(
     )
 
     # Optimizer and scheduler
-    torch.save(optimizer.state_dict(), join(chkpt_dir, "optimizer_state_dict.pt"))
+    if optimizer is not None:
+        torch.save(optimizer.state_dict(), join(chkpt_dir, "optimizer_state_dict.pt"))
     if scheduler is not None:
         torch.save(
             scheduler.state_dict(),
@@ -528,8 +770,8 @@ def crossval_idx_split(
     # Now shuffle the remaining idxs and draw the train and val idxs
     frame_idxs_ = frame_idxs_[n_test:]
 
-    train_id = frame_idxs_[:n_train]
-    val_id = frame_idxs_[n_train : n_train + n_val]
+    val_id = frame_idxs_[:n_val]
+    train_id = frame_idxs_[n_val : n_train + n_val]
 
     assert len(np.intersect1d(train_id, val_id)) == 0
     assert len(np.intersect1d(train_id, test_id)) == 0
