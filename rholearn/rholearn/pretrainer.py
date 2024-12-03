@@ -1,9 +1,9 @@
 from typing import List
+
+import metatensor.torch as mts
 import numpy as np
 import torch
 from sklearn.linear_model import LinearRegression, Ridge
-
-import metatensor.torch as mts
 
 
 class RhoLinearRegression(torch.nn.Module):
@@ -53,7 +53,6 @@ class RhoLinearRegression(torch.nn.Module):
 
         self._fitted = True
 
-
     def validate(self, X: mts.TensorMap, Y: mts.TensorMap) -> None:
         """
         For each block, finds the best alpha. Stores these in `self._best_alphas`, and
@@ -69,11 +68,11 @@ class RhoLinearRegression(torch.nn.Module):
             assert Y.block(key).properties == self._out_properties[key_i]
 
         val_losses = []
-        for key_i, (key, model) in enumerate(zip(self._in_keys, self._models)):
+        for key, model in zip(self._in_keys, self._models):
 
             X_values = _block_mts_to_numpy(X.block(key))
             Y_values = _block_mts_to_numpy(Y.block(key))
-                
+
             Y_pred_values = model.predict(X_values)
 
             loss = ((Y_pred_values - Y_values) ** 2).sum()
@@ -82,10 +81,9 @@ class RhoLinearRegression(torch.nn.Module):
         self._best_val_losses = val_losses
         self._best_models = self._models
 
-    
     def predict(self, X: mts.TensorMap) -> mts.TensorMap:
         """
-        Makes a prediction on the input TensorMap using the best 
+        Makes a prediction on the input TensorMap using the best
         """
         if not self._fitted:
             raise ValueError("models not yet fitted. Call the `fit` method.")
@@ -145,7 +143,7 @@ class RhoRidgeCV(torch.nn.Module):
                     alpha=alpha,
                     fit_intercept=key["o3_lambda"] == 0,
                 )
-                for alpha in self._alphas   
+                for alpha in self._alphas
             ]
             for key in self._in_keys
         ]
@@ -159,12 +157,7 @@ class RhoRidgeCV(torch.nn.Module):
         Fits a Ridge model for each block in the TensorMap and each alpha.
         """
         # Check metadata
-        try:
-            mts.equal_metadata_raise(X, Y, check=["samples", "components"])
-        except:
-            mts.save("X.npz", X)
-            mts.save("Y.npz", Y)
-            raise RuntimeError
+        mts.equal_metadata_raise(X, Y, check=["samples", "components"])
         for key_i, key in enumerate(self._in_keys):
             assert X.block(key).properties == self._in_properties[key_i]
             assert Y.block(key).properties == self._out_properties[key_i]
@@ -180,7 +173,6 @@ class RhoRidgeCV(torch.nn.Module):
                 model.fit(X_values, Y_values)
 
         self._fitted = True
-
 
     def validate(self, X: mts.TensorMap, Y: mts.TensorMap) -> None:
         """
@@ -200,14 +192,14 @@ class RhoRidgeCV(torch.nn.Module):
         best_models = []
         best_losses = []
         val_losses = []
-        for key_i, (key, models) in enumerate(zip(self._in_keys, self._models)):
+        for key, models in zip(self._in_keys, self._models):
 
             X_values = _block_mts_to_numpy(X.block(key))
             Y_values = _block_mts_to_numpy(Y.block(key))
 
             block_losses = []
             for model in models:
-                
+
                 Y_pred_values = model.predict(X_values)
 
                 loss = ((Y_pred_values - Y_values) ** 2).sum()
@@ -224,14 +216,13 @@ class RhoRidgeCV(torch.nn.Module):
         self._best_val_losses = best_losses
         self._all_val_losses = val_losses
 
-    
     def predict(self, X: mts.TensorMap) -> mts.TensorMap:
         """
-        Makes a prediction on the input TensorMap using the best 
+        Makes a prediction on the input TensorMap using the best
         """
         if not self._fitted:
             raise ValueError("models not yet fitted. Call the `fit` method.")
-        
+
         if self._best_alphas is None:
             raise ValueError(
                 "best alphas not yet determined. Call the `get_best_alpha` method."
@@ -263,30 +254,26 @@ class RhoRidgeCV(torch.nn.Module):
             predicted_blocks.append(Y_pred_block)
 
         return mts.TensorMap(self._in_keys, predicted_blocks)
-            
+
 
 def _block_mts_to_numpy(block: mts.TensorBlock) -> np.ndarray:
 
     values = block.values
     s, c, p = values.shape
-    return np.array(
-        values.reshape(s * c, p),
-        dtype=np.float64
-    )
+    return np.array(values.reshape(s * c, p), dtype=np.float64)
+
 
 def _block_numpy_to_mts(
     block: np.ndarray,
-    samples:mts.Labels,
+    samples: mts.Labels,
     components: mts.Labels,
     properties: mts.Labels,
     dtype: torch.dtype,
     device: torch.device,
 ) -> mts.TensorBlock:
-    
+
     values = torch.tensor(
-        block.reshape(
-            len(samples), *[len(c) for c in components], len(properties)
-        ),
+        block.reshape(len(samples), *[len(c) for c in components], len(properties)),
         dtype=dtype,
         device=device,
     )

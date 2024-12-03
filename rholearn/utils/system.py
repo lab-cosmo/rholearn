@@ -11,8 +11,7 @@ import metatensor.torch
 import numpy as np
 import torch
 import vesin
-from ase.geometry.analysis import Analysis
-from chemfiles import Atom, Frame, Trajectory
+from chemfiles import Frame, Trajectory
 from metatensor.torch.atomistic import System
 
 from rholearn.utils import ATOMIC_NUMBERS_TO_SYMBOLS, ATOMIC_SYMBOLS_TO_NUMBERS

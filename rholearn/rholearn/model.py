@@ -1,25 +1,34 @@
 """
 Module containing the global net class `RhoModel`.
 """
-from typing import Callable, Dict, List, Optional, Tuple, Union
+
+from typing import Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
 from chemfiles import Frame
 from metatensor.torch.learn import nn
-from metatensor.torch.learn.nn.equivariant_transformation import _CovariantTransform
+from metatensor.torch.learn.nn.equivariant_transformation import \
+    _CovariantTransform
 from metatensor.torch.learn.nn.layer_norm import _LayerNorm
 
 from rholearn.rholearn import mask, pretrainer, train_utils
-from rholearn.utils import system
-from rholearn.rholearn.descriptor import DescriptorCalculator
 
 SUPPORTED_NN_LAYERS = [
-    "LayerNorm", "Tanh", "ReLU", "SiLU", "Linear", "CovariantTransform", "Identity", "Dropout"
+    "LayerNorm",
+    "Tanh",
+    "ReLU",
+    "SiLU",
+    "Linear",
+    "CovariantTransform",
+    "Identity",
+    "Dropout",
 ]
+
 
 class _Net(torch.nn.Module):
     """Wraps a :py:class:`ModuleMap` in a native :py:class:`torch.nn.Module`."""
+
     def __init__(self, module_map: nn.ModuleMap):
         super().__init__()
         self.module_map = module_map
@@ -53,7 +62,7 @@ class RhoModel(torch.nn.Module):
         intermediate Clebsch Gordan tensor products. If None, the maximum angular
         momentum is set to `spherical_expansion_hypers["max_angular"] * (n_correlations
         + 1)`.
-    :param masked_system_type: 
+    :param masked_system_type:
     """
 
     def __init__(
@@ -151,7 +160,10 @@ class RhoModel(torch.nn.Module):
                     continue
 
                 # Do not apply these modules to covariants
-                if layer_name in ["LayerNorm", "Tanh", "ReLU", "SiLU"] and key["o3_lambda"] != 0:
+                if (
+                    layer_name in ["LayerNorm", "Tanh", "ReLU", "SiLU"]
+                    and key["o3_lambda"] != 0
+                ):
                     block_module.append(torch.nn.Identity())
                     continue
 
@@ -164,11 +176,15 @@ class RhoModel(torch.nn.Module):
 
                     if "in_features" not in args.keys():
                         if prev_out_features is None:  # infer from descriptor size
-                            args.update(dict(in_features=len(self._in_properties[key_i])))
+                            args.update(
+                                dict(in_features=len(self._in_properties[key_i]))
+                            )
                         else:
                             args.update(dict(in_features=prev_out_features))
-                        
-                    if "out_features" not in args.keys():  # assume the output dimension is the target dimension
+
+                    if (
+                        "out_features" not in args.keys()
+                    ):  # assume the output dimension is the target dimension
                         args.update(dict(out_features=len(self._out_properties[key_i])))
 
                     prev_out_features = args["out_features"]
@@ -180,7 +196,7 @@ class RhoModel(torch.nn.Module):
                         in_features = len(self._in_properties[key_i])
                     else:
                         in_features = prev_out_features
-                        
+
                     transform_module = []
                     for sublayer in args:
                         assert len(sublayer) == 1, f"{sublayer}"
@@ -191,7 +207,9 @@ class RhoModel(torch.nn.Module):
                                 sublayer_args.update(dict(in_features=in_features))
                             if "out_features" not in sublayer_args:
                                 sublayer_args.update(dict(out_features=in_features))
-                        transform_module.append(getattr(torch.nn, sublayer_name)(**sublayer_args))
+                        transform_module.append(
+                            getattr(torch.nn, sublayer_name)(**sublayer_args)
+                        )
 
                     block_module.append(
                         _CovariantTransform(
@@ -210,14 +228,17 @@ class RhoModel(torch.nn.Module):
                 elif layer_name in ["Tanh", "ReLU", "SiLU"]:
 
                     block_module.append(getattr(torch.nn, layer_name)(**args))
-            
+
                 else:
                     raise ValueError(
-                        f"layer name not supported. Must be one of: {SUPPORTED_NN_LAYERS}"
+                        f"layer name not supported. Must be one"
+                        f" of: {SUPPORTED_NN_LAYERS}"
                     )
 
             block_modules.append(
-                torch.nn.Sequential(*block_module).to(dtype=self._dtype, device=self._device)
+                torch.nn.Sequential(*block_module).to(
+                    dtype=self._dtype, device=self._device
+                )
             )
 
         # Store the net as a ModuleMap
@@ -225,7 +246,7 @@ class RhoModel(torch.nn.Module):
             nn.ModuleMap(
                 in_keys=self._in_keys,
                 modules=block_modules,
-                out_properties=self._out_properties
+                out_properties=self._out_properties,
             )
         )
 
@@ -237,10 +258,10 @@ class RhoModel(torch.nn.Module):
         if pretrain_args.get("alphas") is None:
             self._pretrainer = pretrainer.RhoLinearRegression(
                 in_keys=self._in_keys,
-            in_properties=self._in_properties,
-            out_properties=self._out_properties,
-            dtype=self._dtype,
-            device=self._device,
+                in_properties=self._in_properties,
+                out_properties=self._out_properties,
+                dtype=self._dtype,
+                device=self._device,
             )
 
         # RidgeCV
@@ -296,15 +317,15 @@ class RhoModel(torch.nn.Module):
         """
         # Check metadata
         for key in self._in_keys:
-            assert key in standardizer.keys, (
-                f"block indexed by key {key} missing from `standardizer`"
-            )
+            assert (
+                key in standardizer.keys
+            ), f"block indexed by key {key} missing from `standardizer`"
         for key, block in standardizer.items():
-            assert key in self._in_keys, (
-                f"unexpected block at key {key} found in `standardizer`"
-            )
+            assert (
+                key in self._in_keys
+            ), f"unexpected block at key {key} found in `standardizer`"
             assert block.properties == self._out_properties[self._in_keys.position(key)]
-            
+
             # Turn off gradients
             block.values.requires_grad = False
 
@@ -334,7 +355,10 @@ class RhoModel(torch.nn.Module):
         )
 
     def _set_requires_grad(
-        self, map_name: str, requires_grad: bool, selected_keys: Optional[mts.Labels] = None
+        self,
+        map_name: str,
+        requires_grad: bool,
+        selected_keys: Optional[mts.Labels] = None,
     ) -> None:
         """
         For the architecture ModuleMap of name ``map_name``, sets the ``requires_grad``
@@ -353,13 +377,14 @@ class RhoModel(torch.nn.Module):
             _selection = mts.Labels(
                 self._in_keys.names, self._in_keys.values[_selection]
             )
-            for key, block_nn in zip(self._in_keys, self._architecture[map_name].module_map):
+            for key, block_nn in zip(
+                self._in_keys, self._architecture[map_name].module_map
+            ):
                 if key in _selection:
                     for param in block_nn.parameters():
                         param.requires_grad = requires_grad
 
         return
-
 
     def _get_grad_norms(self) -> Dict[str, Dict[str, list]]:
         """
@@ -371,8 +396,7 @@ class RhoModel(torch.nn.Module):
             for map_name in self._architecture.keys():
                 grad_norms[map_name] = {}
                 for key, block_nn in zip(
-                    self._in_keys,
-                    self._architecture[map_name].module_map
+                    self._in_keys, self._architecture[map_name].module_map
                 ):
                     grad_norms[map_name][key] = []
                     for param in block_nn.parameters():
@@ -528,7 +552,7 @@ class RhoModel(torch.nn.Module):
                     coeff_vector=pred,
                     frame=mask.retype_frame(
                         frame,
-                        self._descriptor_calculator._masked_system_type, 
+                        self._descriptor_calculator._masked_system_type,
                         **self._descriptor_calculator._mask_kwargs,
                     ),
                     frame_idx=frame_idx,
@@ -564,13 +588,16 @@ class RhoModel(torch.nn.Module):
         representation += "\n  architecture = "
         for map_name in self._architecture:
             representation += f"\n    {map_name}:"
-            for key, block_nn in zip(self._in_keys, self._architecture[map_name].module_map):
+            for key, block_nn in zip(
+                self._in_keys, self._architecture[map_name].module_map
+            ):
                 representation += f"\n      {str(key).replace("LabelsEntry", "")}: "
-                representation += "\n        " + str(block_nn).replace("\n", "\n          ")
+                representation += "\n        " + str(block_nn).replace(
+                    "\n", "\n          "
+                )
 
         representation += f"\n  dtype = {self._dtype},"
         representation += f"\n  device = {self._device},"
         representation += "\n )"
 
         return representation
-

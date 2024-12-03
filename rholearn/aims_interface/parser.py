@@ -4,7 +4,7 @@ Module for parsing outputs from FHI-aims calculations.
 
 import os
 from os.path import exists, join
-from typing import Callable, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import metatensor
 import metatensor.torch
@@ -238,10 +238,14 @@ def get_max_overlap_radius_by_type(aims_output_dir: str) -> float:
     radii = get_prodbas_radii(aims_output_dir)
 
     max_radii = {}
-    for symbol, l_dict in radii.items():
+    for symbol, _ in radii.items():
         species_type = system.atomic_symbol_to_atomic_number(symbol)
         max_radii[species_type] = max(
-            [item["charge_radius"] for l, l_list in radii[symbol].items() for item in l_list]
+            [
+                item["charge_radius"]
+                for _, l_list in radii[symbol].items()
+                for item in l_list
+            ]
         )
 
     return max_radii
@@ -590,7 +594,7 @@ def process_ri_outputs(
 
     # Load to numpy
     coeffs_numpy = np.loadtxt(join(aims_output_dir, "ri_restart_coeffs.out"))
-    
+
     # Save to numpy to compress, then remove the original text file
     np.save(join(aims_output_dir, "ri_restart_coeffs.npy"), coeffs_numpy)
     os.remove(join(aims_output_dir, "ri_restart_coeffs.out"))
@@ -671,7 +675,7 @@ def process_ri_outputs(
             drop_empty_blocks=True,
             backend="numpy",
         )
-    
+
     # Save
     metatensor.save(
         join(save_dir, "ri_ovlp.npz"),
@@ -718,8 +722,9 @@ def process_ri_outputs(
     os.remove(join(aims_output_dir, "partition_tab.out"))
     os.remove(join(aims_output_dir, "rho_scf.out"))
     os.remove(join(aims_output_dir, "rho_rebuilt_ri.out"))
-    
+
     return
+
 
 def process_df_error(
     aims_output_dir: str,
@@ -743,11 +748,11 @@ def process_df_error(
     # Build a coordinate mask, if applicable
     if masked_system_type is not None:
         grid_mask = mask.get_point_indices_by_region(
-                points=grid[:, :3],
-                masked_system_type=masked_system_type,
-                region="active",
-                **kwargs,
-            )
+            points=grid[:, :3],
+            masked_system_type=masked_system_type,
+            region="active",
+            **kwargs,
+        )
         input = input[grid_mask]
         target = target[grid_mask]
         grid = grid[grid_mask]
@@ -766,7 +771,11 @@ def process_df_error(
     pickle_dict(
         join(
             save_dir,
-            "df_error.pickle" if masked_system_type is None else f"df_error_masked.pickle",
+            (
+                "df_error.pickle"
+                if masked_system_type is None
+                else "df_error_masked.pickle"
+            ),
         ),
         {
             "abs_error": abs_error,
@@ -778,6 +787,7 @@ def process_df_error(
     )
 
     return
+
 
 def check_converged(aims_output_dir: str) -> bool:
     """
@@ -951,7 +961,9 @@ def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = Non
 
         # Read atom PDOS file
         pdos_atom = np.loadtxt(
-            join(aims_output_dir, f"atom_proj_dos_tetrahedron_{sym}{str(i).zfill(4)}.dat")
+            join(
+                aims_output_dir, f"atom_proj_dos_tetrahedron_{sym}{str(i).zfill(4)}.dat"
+            )
         )
 
         # Store the energy array only once

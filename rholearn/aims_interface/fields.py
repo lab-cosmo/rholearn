@@ -3,7 +3,7 @@ Module for computing quantities from scalar fields output by FHI-aims, i.e. 2D a
 grid coordinates and scalar values.
 """
 
-from typing import Callable, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 
@@ -45,9 +45,7 @@ def field_absolute_error(
             target = sort_field_by_grid_points(target)
             grid = sort_field_by_grid_points(grid)
 
-            return field_absolute_error(
-                input, target, grid, already_sorted=True
-            )
+            return field_absolute_error(input, target, grid, already_sorted=True)
 
     abs_error = np.dot(np.abs(input[:, 3] - target[:, 3]), grid[:, 3])
     normalization = np.dot(target[:, 3], grid[:, 3])
@@ -92,9 +90,7 @@ def field_squared_error(
             target = sort_field_by_grid_points(target)
             grid = sort_field_by_grid_points(grid)
 
-            return field_squared_error(
-                input, target, grid, already_sorted=True
-            )
+            return field_squared_error(input, target, grid, already_sorted=True)
 
     squared_error = np.dot((input[:, 3] - target[:, 3]) ** 2, grid[:, 3])
     normalization = np.dot(target[:, 3], grid[:, 3])

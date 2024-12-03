@@ -3,18 +3,15 @@ Module to calculate Kohn-Sham orbital occs for constructing scalar fields in
 FHI-aims, and to handle outputs in terms of orbitals.
 """
 
-from os.path import join
 from typing import List, Optional, Union
 
 import numpy as np
-from chemfiles import Frame
 from scipy.integrate import cumulative_trapezoid
 from scipy.interpolate import interp1d
 from scipy.optimize import brentq
 from scipy.special import erf
 
-from rholearn.aims_interface import io, parser
-from rholearn.utils import system
+from rholearn.aims_interface import parser
 
 # ===== HOMO / LUMO =====
 
@@ -98,12 +95,12 @@ def get_eigenstate_occs_e_density(aims_output_dir: str) -> np.ndarray:
     """
     Returns the eiegenstate occupations for constructing the electron density.
 
-    Each eigenstate occupation is given by the product of the k-point weight and the electronic
-    occupation for each eigenstate.
+    Each eigenstate occupation is given by the product of the k-point weight and the
+    electronic occupation for each eigenstate.
     """
     kso_info = parser.get_eigenstate_info(aims_output_dir)
 
-    return np.array([ kso["occ"] for kso in kso_info])
+    return np.array([kso["occ"] for kso in kso_info])
 
 
 def get_eigenstate_occs_ldos(
@@ -113,8 +110,8 @@ def get_eigenstate_occs_ldos(
     Returns the eiegenstate occupations for constructing the Local Density of States
     (LDOS).
 
-    Each eigenstate occupation is given by the evaluation of a Gaussian function, of width
-    `gaussian_width`, centered on the eigenstate eigenvalue and evaluated at the
+    Each eigenstate occupation is given by the evaluation of a Gaussian function, of
+    width `gaussian_width`, centered on the eigenstate eigenvalue and evaluated at the
     `target_energy`.
 
     Where `target_energy` is not passed, the eigenvalue of the highest occupied
@@ -308,10 +305,8 @@ def calculate_dos(
 
     dos = np.zeros(len(e_grid))
     for kso in kso_info:
-        dos += (
-            evaluate_gaussian(
-                target=e_grid, center=kso["energy_eV"], width=gaussian_width
-            )
+        dos += evaluate_gaussian(
+            target=e_grid, center=kso["energy_eV"], width=gaussian_width
         )
 
     return e_grid, dos
@@ -359,4 +354,3 @@ def calculate_fermi_energy(
     )
 
     return fermi_energy
-

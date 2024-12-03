@@ -15,6 +15,7 @@ SOLVERS = {
     "nonorthogonal_via_w": ["input_c", "target_c", "overlap", "target_w"],
 }
 
+
 class RhoLoss(torch.nn.Module):
     """
     Implements different solvers for L2 loss between two real space scalar fields:
@@ -36,11 +37,9 @@ class RhoLoss(torch.nn.Module):
         that ``overlap`` matrices passed to :py:meth:`forward` have already been
         conditioned by summation with the ``conditioner``-scaled identity matrix.
     """
+
     def __init__(
-        self,
-        solver: str,
-        truncated: bool = False,
-        conditioner: Optional[float] = None
+        self, solver: str, truncated: bool = False, conditioner: Optional[float] = None
     ) -> None:
 
         super().__init__()
@@ -53,7 +52,9 @@ class RhoLoss(torch.nn.Module):
         self._truncated = truncated
         if conditioner is not None:
             if solver == "orthogonal":
-                raise ValueError("``conditioner`` cannot be passed with solver='orthogonal'")
+                raise ValueError(
+                    "``conditioner`` cannot be passed with solver='orthogonal'"
+                )
             assert truncated, "``truncated`` must be true if passing ``conditioner``"
             assert conditioner > 0, "conditioner must be > 0"
         self._conditioner = conditioner
@@ -78,9 +79,9 @@ class RhoLoss(torch.nn.Module):
             the idenitity matrix has been subtracted from it.
         """
         for req_data in self._required_data:
-            assert locals().get(req_data) is not None, (
-                f"``{req_data}`` data is required for solver {self._solver}"
-            )
+            assert (
+                locals().get(req_data) is not None
+            ), f"``{req_data}`` data is required for solver {self._solver}"
 
         # Orthogonal basis
         # L = (∆c) ^ 2
@@ -89,7 +90,7 @@ class RhoLoss(torch.nn.Module):
             if check_metadata:
                 _check_metadata_coefficients(input_c)
                 _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
-                
+
             delta_c = mts.subtract(input_c, target_c)
             loss = _dot(delta_c, delta_c)
 
@@ -97,7 +98,7 @@ class RhoLoss(torch.nn.Module):
         #     L = ∆c S ∆c
         # or if conditioned:
         #     L = ∆c.(S + bI).∆c - b ∆cT.∆c
-        elif self._solver == "nonorthogonal_via_c":            
+        elif self._solver == "nonorthogonal_via_c":
             if check_metadata:
                 _check_metadata_coefficients(input_c)
                 _equal_metadata_raise(input_c, target_c, "input_c", "target_c")
@@ -129,27 +130,26 @@ class RhoLoss(torch.nn.Module):
 
             else:
                 # Non-orthogonal basis, via target projections (conditioned)
-                #     L = c^{inp}T.(S + bI).c^{inp} 
+                #     L = c^{inp}T.(S + bI).c^{inp}
                 #         - b ( c^{inp} + (1/b)w^{tar} )T.( c^{inp} + (1/b)w^{tar} )
                 input_c_plus_target_w = mts.add(
                     input_c, mts.multiply(target_w, 1 / self._conditioner)
                 )
-                loss = (
-                    _cSc(input_c, overlap) 
-                    - self._conditioner 
-                    * _dot(input_c_plus_target_w, input_c_plus_target_w)
+                loss = _cSc(input_c, overlap) - self._conditioner * _dot(
+                    input_c_plus_target_w, input_c_plus_target_w
                 )
-            
+
         return loss
 
 
-# =========================== 
+# ===========================
 # ===== Base operations =====
 # ===========================
 
 
 def _cSc(
-    coefficients: mts.TensorMap, overlap: mts.TensorMap,
+    coefficients: mts.TensorMap,
+    overlap: mts.TensorMap,
 ) -> torch.Tensor:
     """
     Evaluates the double matrix multiplcation and reduces to a scalar:
@@ -278,7 +278,9 @@ def _dot(coefficients_1: mts.TensorMap, coefficients_2: mts.TensorMap) -> torch.
     """
     dot_product = 0
     for key in coefficients_1.keys:
-        dot_product += torch.tensordot(coefficients_1[key].values, coefficients_2[key].values)
+        dot_product += torch.tensordot(
+            coefficients_1[key].values, coefficients_2[key].values
+        )
     return dot_product
 
 

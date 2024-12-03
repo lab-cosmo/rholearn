@@ -5,6 +5,7 @@ https://github.com/funkymunkycool/Cube-Toolz.
 Allows reading and manipulation of cube files, with added functionality for generating
 contour plots (i.e. for use in STM image generation).
 """
+
 from os.path import join
 from typing import List, Optional, Tuple
 
@@ -98,8 +99,9 @@ class RhoCube(cube_tools.cube):
         xy_tiling: List[int] = None,
     ) -> np.ndarray:
         """
-        Calculates the height profile of the density at the target `isovalue`, within the specified `tolerance`.
-        Tiles the grid if specified and then transforms the coordinates to the physical space.
+        Calculates the height profile of the density at the target `isovalue`, within
+        the specified `tolerance`. Tiles the grid if specified and then transforms the
+        coordinates to the physical space.
         """
         # Define cell matrix for transformations
         cell_matrix = np.array([self.X, self.Y, self.Z])
@@ -111,12 +113,18 @@ class RhoCube(cube_tools.cube):
             for j in range(self.NY):
                 z_grid = (np.arange(self.NZ) * self.Z[2]) + self.origin[2]
                 spliner = CubicSpline(z_grid, self.data[i, j, :])
-                z_grid_fine = np.linspace(z_grid.min(), z_grid.max(), self.NZ * grid_multiplier)
-                match_idxs = np.where(np.abs(spliner(z_grid_fine) - isovalue) < tolerance)[0]
+                z_grid_fine = np.linspace(
+                    z_grid.min(), z_grid.max(), self.NZ * grid_multiplier
+                )
+                match_idxs = np.where(
+                    np.abs(spliner(z_grid_fine) - isovalue) < tolerance
+                )[0]
                 if match_idxs.size > 0:
                     match_idx = match_idxs[np.argmax(z_grid_fine[match_idxs])]
                     z_height = z_grid_fine[match_idx]
-                    if (z_min is None or z_height >= z_min) and (z_max is None or z_height <= z_max):
+                    if (z_min is None or z_height >= z_min) and (
+                        z_max is None or z_height <= z_max
+                    ):
                         height_map[i, j] = z_height
 
         # Check for tiling settings
@@ -128,12 +136,20 @@ class RhoCube(cube_tools.cube):
 
         # Generate tiled indices to transform to physical coordinates
         tiled_NX, tiled_NY = self.NX * xy_tiling[0], self.NY * xy_tiling[1]
-        X_indices_tiled, Y_indices_tiled = np.meshgrid(np.arange(tiled_NX), np.arange(tiled_NY), indexing='ij')
-        Z_indices_tiled = np.full_like(X_indices_tiled, fill_value=0)  # Z is not used for tiling
+        X_indices_tiled, Y_indices_tiled = np.meshgrid(
+            np.arange(tiled_NX), np.arange(tiled_NY), indexing="ij"
+        )
+        Z_indices_tiled = np.full_like(
+            X_indices_tiled, fill_value=0
+        )  # Z is not used for tiling
 
         # Transform tiled indices to physical coordinates
-        tiled_grid_indices = np.stack([X_indices_tiled, Y_indices_tiled, Z_indices_tiled], axis=-1)
-        tiled_physical_coords = np.einsum('ij,klj->kli', cell_matrix, tiled_grid_indices)
+        tiled_grid_indices = np.stack(
+            [X_indices_tiled, Y_indices_tiled, Z_indices_tiled], axis=-1
+        )
+        tiled_physical_coords = np.einsum(
+            "ij,klj->kli", cell_matrix, tiled_grid_indices
+        )
 
         # Extract X and Y coordinates
         tiled_X = tiled_physical_coords[..., 0]

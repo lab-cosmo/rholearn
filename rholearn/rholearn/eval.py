@@ -21,7 +21,7 @@ def eval():
         3. Rebuild fields by calling FHI-aims
         4. Evaluate MAE against reference fields
         5. Generates STM images by parsing FHI-aims cube output files
-    
+
     Steps 2 and 3 only occur if rebuild output files don't already exist. Steps 4 and 5
     only occur if the respective `EVAL` options are specified in ml-options.yaml.
     """
@@ -52,7 +52,7 @@ def eval():
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
         frame_idxs = list(range(len(all_frames)))
-    
+
     # Exclude some structures if specified
     if dft_options["IDX_EXCLUDE"] is not None:
         frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
@@ -72,7 +72,7 @@ def eval():
 
     # Now take a subset of the test IDs, if applicable
     if ml_options["EVAL"]["subset_size"] is not None:
-        test_id = test_id[:ml_options["EVAL"]["subset_size"]]
+        test_id = test_id[: ml_options["EVAL"]["subset_size"]]
 
     io.log(log_path, f"    Test system ID: {test_id}")
     test_frames = [all_frames[A] for A in test_id]
@@ -105,9 +105,12 @@ def eval():
         test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)
         dt_infer = time.time() - t0_infer
         io.log(
-            log_path, train_utils.report_dt(dt_infer, "Model inference (on basis) complete")
+            log_path,
+            train_utils.report_dt(dt_infer, "Model inference (on basis) complete"),
         )
-        io.log(log_path, train_utils.report_dt(dt_infer / len(test_id), "    or per frame"))
+        io.log(
+            log_path, train_utils.report_dt(dt_infer / len(test_id), "    or per frame")
+        )
 
         # ===== Rebuild fields =====
         io.log(log_path, "Rebuild real-space field(s) in FHI-aims")
@@ -117,7 +120,7 @@ def eval():
             test_frames = mask.retype_frame(
                 test_frames,
                 model._descriptor_calculator._masked_system_type,
-                **model._descriptor_calculator._mask_kwargs
+                **model._descriptor_calculator._mask_kwargs,
             )
         test_preds_numpy = [
             convert.coeff_vector_blocks_to_flat(
@@ -156,7 +159,9 @@ def eval():
         dt_build = time.time() - t0_build
         io.log(
             log_path,
-            train_utils.report_dt(dt_build, "Build predicted field(s) in FHI-aims complete"),
+            train_utils.report_dt(
+                dt_build, "Build predicted field(s) in FHI-aims complete"
+            ),
         )
 
     # ===== Evaluate NMAE =====
@@ -171,9 +176,7 @@ def eval():
             f"Evaluate MAE versus reference field type(s): {target_types}",
         )
         if model._descriptor_calculator._masked_system_type is not None:
-            io.log(
-                log_path, "Evaluting errors on active region coordinates only"
-            )
+            io.log(log_path, "Evaluting errors on active region coordinates only")
 
         nmaes = {t: [] for t in target_types}
         for A in test_id:
@@ -186,7 +189,9 @@ def eval():
                 rho_ml = rho_ml[
                     mask.get_point_indices_by_region(
                         points=rho_ml[:, :3],
-                        masked_system_type=model._descriptor_calculator._masked_system_type,
+                        masked_system_type=(
+                            model._descriptor_calculator._masked_system_type
+                        ),
                         region="active",
                         **model._descriptor_calculator._mask_kwargs,
                     )
@@ -194,7 +199,9 @@ def eval():
                 grid = grid[
                     mask.get_point_indices_by_region(
                         points=grid[:, :3],
-                        masked_system_type=model._descriptor_calculator._masked_system_type,
+                        masked_system_type=(
+                            model._descriptor_calculator._masked_system_type
+                        ),
                         region="active",
                         **model._descriptor_calculator._mask_kwargs,
                     )
@@ -206,14 +213,18 @@ def eval():
                     rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_scf.out"))
                 else:
                     assert target_type == "ri"
-                    rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.out"))
+                    rho_ref = np.loadtxt(
+                        join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.out")
+                    )
 
                 # Build a coordinate mask, if applicable
                 if model._descriptor_calculator._masked_system_type is not None:
                     rho_ref = rho_ref[
                         mask.get_point_indices_by_region(
                             points=rho_ref[:, :3],
-                            masked_system_type=model._descriptor_calculator._masked_system_type,
+                            masked_system_type=(
+                                model._descriptor_calculator._masked_system_type
+                            ),
                             region="active",
                             **model._descriptor_calculator._mask_kwargs,
                         )
@@ -238,8 +249,9 @@ def eval():
                 # Log and save the results
                 io.log(
                     log_path,
-                    f"system {A} target {target_type} abs_error {abs_error:.5f} norm {norm:.5f}"
-                    f" nmae {nmae:.5f} squared_error {squared_error:.5f}",
+                    f"system {A} target {target_type} abs_error {abs_error:.5f}"
+                    f" norm {norm:.5f} nmae {nmae:.5f}"
+                    f" squared_error {squared_error:.5f}",
                 )
                 np.savez(
                     join(rebuild_dir(A), f"error_{target_type}.npz"),
@@ -249,12 +261,12 @@ def eval():
                     squared_error=squared_error,
                 )
 
-        io.log(
-            log_path, "Mean % NMAE per structure:"
-        )
+        io.log(log_path, "Mean % NMAE per structure:")
         for target_type in nmaes.keys():
             io.log(
-                log_path, f"    {target_type}: {torch.mean(torch.tensor(nmaes[target_type])):.5f}"
+                log_path,
+                f"    {target_type}:"
+                f" {torch.mean(torch.tensor(nmaes[target_type])):.5f}",
             )
 
     # ===== Generate STM images =====
@@ -266,8 +278,12 @@ def eval():
         for A in test_id:
             io.log(log_path, f"    Structure: {A}")
             # Load the SCF, RI, and ML cube files
-            q_scf = cube.RhoCube(join(dft_options["RI_DIR"](A), "cube_001_total_density.cube"))
-            q_ri = cube.RhoCube(join(dft_options["RI_DIR"](A), "cube_002_ri_density.cube"))
+            q_scf = cube.RhoCube(
+                join(dft_options["RI_DIR"](A), "cube_001_total_density.cube")
+            )
+            q_ri = cube.RhoCube(
+                join(dft_options["RI_DIR"](A), "cube_002_ri_density.cube")
+            )
             q_ml = cube.RhoCube(join(rebuild_dir(A), "cube_001_ri_density.cube"))
 
             # Plot the STM scatter
@@ -291,7 +307,9 @@ def eval():
 
         dt_stm = time.time() - t0_stm
         io.log(log_path, train_utils.report_dt(dt_stm, "STM image generation complete"))
-        io.log(log_path, train_utils.report_dt(dt_stm / len(test_id), "    or per frame"))
+        io.log(
+            log_path, train_utils.report_dt(dt_stm / len(test_id), "    or per frame")
+        )
 
     # ===== Report eval timings =====
     dt_eval = time.time() - t0_eval

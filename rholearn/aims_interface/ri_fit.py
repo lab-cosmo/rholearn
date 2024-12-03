@@ -14,7 +14,7 @@ from rholearn.aims_interface import hpc, io, orbitals, parser
 from rholearn.options import get_options
 from rholearn.rholearn import mask
 from rholearn.utils import system
-from rholearn.utils.io import pickle_dict, unpickle_dict
+from rholearn.utils.io import unpickle_dict
 
 
 def run_ri_fit() -> None:
@@ -176,24 +176,25 @@ def process_ri_fit() -> None:
     )
     hpc.run_script(".", "sbatch " + fname)
 
+
 def process_ri_fit_for_frame(frame_idx: int) -> None:
     """
     Process the RI outputs. Function should be called from the FHI-aims output
-    directory. 
+    directory.
     """
 
     dft_options, hpc_options = _get_options()
     parser.process_ri_outputs(
-        aims_output_dir=dft_options['RI_DIR'](frame_idx),
+        aims_output_dir=dft_options["RI_DIR"](frame_idx),
         structure_idx=frame_idx,
-        ovlp_cond_num=dft_options['PROCESS_RI']['overlap_cond_num'],
-        cutoff_ovlp=dft_options['PROCESS_RI']['cutoff_overlap'],
-        ovlp_sparsity_threshold=float(dft_options['PROCESS_RI']['sparsity_threshold']),
-        save_dir=dft_options['PROCESSED_DIR'](frame_idx)
+        ovlp_cond_num=dft_options["PROCESS_RI"]["overlap_cond_num"],
+        cutoff_ovlp=dft_options["PROCESS_RI"]["cutoff_overlap"],
+        ovlp_sparsity_threshold=float(dft_options["PROCESS_RI"]["sparsity_threshold"]),
+        save_dir=dft_options["PROCESSED_DIR"](frame_idx),
     )
     parser.process_df_error(
-        aims_output_dir=dft_options['RI_DIR'](frame_idx),
-        save_dir=dft_options['PROCESSED_DIR'](frame_idx),
+        aims_output_dir=dft_options["RI_DIR"](frame_idx),
+        save_dir=dft_options["PROCESSED_DIR"](frame_idx),
         **dft_options["MASK"],
     )
 
@@ -207,7 +208,7 @@ def _write_eigenstate_occs_to_file(
     """
     if dft_options["FIELD_NAME"] == "edensity":  # no occupations required
         return
-    
+
     # Calculate KSO occupations
     calc_info = unpickle_dict(join(dft_options["SCF_DIR"](A), "calc_info.pickle"))
 

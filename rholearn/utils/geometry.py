@@ -3,20 +3,16 @@ from typing import List, Optional, Union
 import ase
 import ase.build
 import ase.io
-import numpy as np
-import vesin
-
-from ase.geometry.analysis import Analysis
-
+import chemfiles
 import metatensor
 import metatensor.torch
-
-import chemfiles
+import numpy as np
+import vesin
+from ase.geometry.analysis import Analysis
 from chemfiles import Atom, Frame, UnitCell
 
 from rholearn.utils import system
 from rholearn.utils._dispatch import int_array
-
 
 
 def perturb_slab(slab, noise_scale_factor: float = 0.25):
@@ -255,9 +251,9 @@ def add_virtual_nodes_in_bonds(
     if isinstance(frame, list):
         return [add_virtual_nodes_in_bonds(f) for f in frame]
 
-    assert isinstance(frame, chemfiles.frame.Frame), (
-        f"Invalid frame type: {type(frame)}. Must be chemfiles.frame.Frame."
-    )
+    assert isinstance(
+        frame, chemfiles.frame.Frame
+    ), f"Invalid frame type: {type(frame)}. Must be chemfiles.frame.Frame."
 
     if selected_atoms is None:
         selected_atoms = list(range(len(frame.positions)))

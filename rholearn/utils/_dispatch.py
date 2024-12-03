@@ -14,6 +14,7 @@ def abs(array, backend: str):
 
     raise ValueError(f"Unknown backend: {backend}")
 
+
 def all(array, backend: str):
 
     if backend == "torch":
@@ -23,7 +24,8 @@ def all(array, backend: str):
         return np.all(array)
 
     raise ValueError(f"Unknown backend: {backend}")
-    
+
+
 def any(array, backend: str):
 
     if backend == "torch":
@@ -89,6 +91,7 @@ def max(array, axis, backend: str):
 
     raise ValueError(f"Unknown backend: {backend}")
 
+
 def mean(array, axis, backend: str):
 
     if backend == "torch":
@@ -99,6 +102,7 @@ def mean(array, axis, backend: str):
 
     raise ValueError(f"Unknown backend: {backend}")
 
+
 def min(array, axis, backend: str):
 
     if backend == "torch":
@@ -108,6 +112,7 @@ def min(array, axis, backend: str):
         return np.min(array, axis=axis)
 
     raise ValueError(f"Unknown backend: {backend}")
+
 
 # def sort(array, axis, backend: str):
 

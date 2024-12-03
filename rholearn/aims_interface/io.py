@@ -164,9 +164,7 @@ def write_control(
                 species_default_str = species_file.read()
 
         else:
-            raise FileNotFoundError(
-                f"species default file: {fname} not found."
-            )
+            raise FileNotFoundError(f"species default file: {fname} not found.")
 
         # # Case 2: no species default - assume a pseudo atom type
         # else:
@@ -174,21 +172,19 @@ def write_control(
         #     std_symbol = system.atomic_number_to_atomic_symbol(std_atomic_number)
         #     fname = str(std_atomic_number).zfill(2) + "_" + std_symbol + "_default"
 
-            
+        # with open(join(species_defaults, fname), "r") as species_file:
+        #     species_default_str = species_file.read()
 
-            # with open(join(species_defaults, fname), "r") as species_file:
-            #     species_default_str = species_file.read()
+        # # Find the index of the line that says, i.e. "species     H"
+        # lines = species_default_str.split("\n")
+        # index = None
+        # for i, line in enumerate(lines):
+        #     if line.strip().startswith("species") and std_symbol in line:
+        #         index = i
+        #         break
 
-            # # Find the index of the line that says, i.e. "species     H"
-            # lines = species_default_str.split("\n")
-            # index = None
-            # for i, line in enumerate(lines):
-            #     if line.strip().startswith("species") and std_symbol in line:
-            #         index = i
-            #         break
-
-            # # Join the lines back into a single string
-            # species_default_str = "\n".join(lines)
+        # # Join the lines back into a single string
+        # species_default_str = "\n".join(lines)
 
         # Store the species default
         species_default_strings[atomic_number] = species_default_str
@@ -248,6 +244,7 @@ def _timestamp() -> str:
     """Return a timestamp string in format YYYY-MM-DD-HH:MM:SS."""
     return datetime.datetime.today().strftime("%Y-%m-%d-%H:%M:%S")
 
+
 def _get_aims_cube_edges_slab(
     slab, n_points: tuple, z_min: float = None, z_max: float = None
 ) -> dict:
@@ -282,18 +279,25 @@ def _get_aims_cube_edges_slab(
         min_z = np.min(slab.positions[:, 2]) if z_min is None else z_min
         max_z = np.max(slab.positions[:, 2]) if z_max is None else z_max
         z_range = max_z - min_z
-        steps[2] = slab.cell.matrix[2] * (z_range / slab.cell.lengths[2]) / (n_points[2] - 1)
+        steps[2] = (
+            slab.cell.matrix[2] * (z_range / slab.cell.lengths[2]) / (n_points[2] - 1)
+        )
         min_coords[2] = min_z
         max_coords[2] = max_z
 
     origin = (max_coords + min_coords) / 2
     # bounding_box_center = (max_coords + min_coords) / 2
-    # origin = bounding_box_center - np.array([steps[i][i] * (n_points[i] - 1) / 2 for i in range(3)])
+    # origin = bounding_box_center - np.array([steps[i][i]
+    # * (n_points[i] - 1) / 2 for i in range(3)])
 
     # Formatting the output for control.in
     cube_string = f"cube origin {origin[0]:.3f} {origin[1]:.3f} {origin[2]:.3f}\n"
     for i in range(3):
-        cube_string += f"cube edge {n_points[i]} {steps[i][0]:.3f} {steps[i][1]:.3f} {steps[i][2]:.3f}\n"
+        cube_string += (
+            f"cube edge {n_points[i]} "
+            f"{steps[i][0]:.3f} {steps[i][1]:.3f} "
+            f"{steps[i][2]:.3f}\n"
+        )
 
     return {"cubes": cube_string}
 

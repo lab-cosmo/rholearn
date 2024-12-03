@@ -1,23 +1,19 @@
 """
 Module containing classes to compute descriptors.
 """
+
 import warnings
-from typing import Callable, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import metatensor.torch as mts
 import torch
-from chemfiles import Atom, Frame
-from metatensor.torch.learn import nn
-from metatensor.torch.learn.nn.equivariant_transformation import _CovariantTransform
-from metatensor.torch.learn.nn.layer_norm import _LayerNorm
-from rascaline.torch import SphericalExpansion
+from chemfiles import Frame
+from rascaline.torch import LodeSphericalExpansion, SphericalExpansion
 from rascaline.torch.utils import ClebschGordanProduct, DensityCorrelations
 from rascaline.torch.utils.clebsch_gordan._density_correlations import (
-    _filter_redundant_keys,
-    _increment_property_names,
-)
+    _filter_redundant_keys, _increment_property_names)
 
-from rholearn.rholearn import mask, pretrainer, train_utils
+from rholearn.rholearn import mask, train_utils
 from rholearn.utils import _dispatch, system
 
 SUPPORTED_DESCRIPTORS = [
@@ -68,14 +64,18 @@ class DescriptorCalculator(torch.nn.Module):
 
         if self._descriptor_hypers["descriptor_type"] == "rho1":
 
-            self._spherical_expansion_hypers = descriptor_hypers["spherical_expansion_hypers"]
+            self._spherical_expansion_hypers = descriptor_hypers[
+                "spherical_expansion_hypers"
+            ]
             self._spherical_expansion = SphericalExpansion(
                 **self._spherical_expansion_hypers
             )
 
         elif self._descriptor_hypers["descriptor_type"] == "rho2":
 
-            self._spherical_expansion_hypers = descriptor_hypers["spherical_expansion_hypers"]
+            self._spherical_expansion_hypers = descriptor_hypers[
+                "spherical_expansion_hypers"
+            ]
             if descriptor_hypers["angular_cutoff"] is None:
                 max_angular = self._spherical_expansion_hypers["max_angular"] * 2
             else:
@@ -99,10 +99,17 @@ class DescriptorCalculator(torch.nn.Module):
 
         elif self._descriptor_hypers["descriptor_type"] == "rho1_x_rho1":
 
-            self._spherical_expansion_1_hypers = descriptor_hypers["spherical_expansion_1_hypers"]
-            self._spherical_expansion_2_hypers = descriptor_hypers["spherical_expansion_2_hypers"]
+            self._spherical_expansion_1_hypers = descriptor_hypers[
+                "spherical_expansion_1_hypers"
+            ]
+            self._spherical_expansion_2_hypers = descriptor_hypers[
+                "spherical_expansion_2_hypers"
+            ]
             if descriptor_hypers["angular_cutoff"] is None:
-                max_angular = self._spherical_expansion_1_hypers["max_angular"] + self._spherical_expansion_2_hypers["max_angular"]
+                max_angular = (
+                    self._spherical_expansion_1_hypers["max_angular"]
+                    + self._spherical_expansion_2_hypers["max_angular"]
+                )
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
             self._angular_cutoff = descriptor_hypers["angular_cutoff"]
@@ -125,12 +132,18 @@ class DescriptorCalculator(torch.nn.Module):
 
         elif self._descriptor_hypers["descriptor_type"] == "rho1_x_rho1_x_rho1":
 
-            self._spherical_expansion_1_hypers = descriptor_hypers["spherical_expansion_1_hypers"]
-            self._spherical_expansion_2_hypers = descriptor_hypers["spherical_expansion_2_hypers"]
-            self._spherical_expansion_3_hypers = descriptor_hypers["spherical_expansion_3_hypers"]
+            self._spherical_expansion_1_hypers = descriptor_hypers[
+                "spherical_expansion_1_hypers"
+            ]
+            self._spherical_expansion_2_hypers = descriptor_hypers[
+                "spherical_expansion_2_hypers"
+            ]
+            self._spherical_expansion_3_hypers = descriptor_hypers[
+                "spherical_expansion_3_hypers"
+            ]
             if descriptor_hypers["angular_cutoff"] is None:
                 max_angular = (
-                    self._spherical_expansion_1_hypers["max_angular"] 
+                    self._spherical_expansion_1_hypers["max_angular"]
                     + self._spherical_expansion_2_hypers["max_angular"]
                     + self._spherical_expansion_3_hypers["max_angular"]
                 )
@@ -161,10 +174,17 @@ class DescriptorCalculator(torch.nn.Module):
 
         elif self._descriptor_hypers["descriptor_type"] == "rho_x_V":
 
-            self._spherical_expansion_hypers = descriptor_hypers["spherical_expansion_hypers"]
-            self._lode_spherical_expansion_hypers = descriptor_hypers["lode_spherical_expansion_hypers"]
+            self._spherical_expansion_hypers = descriptor_hypers[
+                "spherical_expansion_hypers"
+            ]
+            self._lode_spherical_expansion_hypers = descriptor_hypers[
+                "lode_spherical_expansion_hypers"
+            ]
             if descriptor_hypers["angular_cutoff"] is None:
-                max_angular = self._spherical_expansion_hypers["max_angular"] + self._lode_spherical_expansion_hypers["max_angular"]
+                max_angular = (
+                    self._spherical_expansion_hypers["max_angular"]
+                    + self._lode_spherical_expansion_hypers["max_angular"]
+                )
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
             self._angular_cutoff = descriptor_hypers["angular_cutoff"]
@@ -184,10 +204,12 @@ class DescriptorCalculator(torch.nn.Module):
                 self._epca = None
             else:
                 self._epca = EquivariantPCA(descriptor_hypers["epca_components"])
-        
+
         elif self._descriptor_hypers["descriptor_type"] == "rho3":
 
-            self._spherical_expansion_hypers = descriptor_hypers["spherical_expansion_hypers"]
+            self._spherical_expansion_hypers = descriptor_hypers[
+                "spherical_expansion_hypers"
+            ]
             if descriptor_hypers["angular_cutoff"] is None:
                 max_angular = self._spherical_expansion_hypers["max_angular"] * 3
             else:
@@ -211,8 +233,12 @@ class DescriptorCalculator(torch.nn.Module):
                 self._epca_2 = EquivariantPCA(descriptor_hypers["epca_components"])
 
         elif self._descriptor_hypers["descriptor_type"] == "rho2_p_rho1":
-            self._spherical_expansion_1_hypers = descriptor_hypers["spherical_expansion_1_hypers"]
-            self._spherical_expansion_2_hypers = descriptor_hypers["spherical_expansion_2_hypers"]
+            self._spherical_expansion_1_hypers = descriptor_hypers[
+                "spherical_expansion_1_hypers"
+            ]
+            self._spherical_expansion_2_hypers = descriptor_hypers[
+                "spherical_expansion_2_hypers"
+            ]
             if descriptor_hypers["angular_cutoff"] is None:
                 max_angular = self._spherical_expansion_1_hypers["max_angular"] * 2
             else:
@@ -234,9 +260,15 @@ class DescriptorCalculator(torch.nn.Module):
 
         elif self._descriptor_hypers["descriptor_type"] == "rho3_p_rho2_p_rho1":
 
-            self._spherical_expansion_1_hypers = descriptor_hypers["spherical_expansion_1_hypers"]
-            self._spherical_expansion_2_hypers = descriptor_hypers["spherical_expansion_2_hypers"]
-            self._spherical_expansion_3_hypers = descriptor_hypers["spherical_expansion_3_hypers"]
+            self._spherical_expansion_1_hypers = descriptor_hypers[
+                "spherical_expansion_1_hypers"
+            ]
+            self._spherical_expansion_2_hypers = descriptor_hypers[
+                "spherical_expansion_2_hypers"
+            ]
+            self._spherical_expansion_3_hypers = descriptor_hypers[
+                "spherical_expansion_3_hypers"
+            ]
             self._angular_cutoff = descriptor_hypers["angular_cutoff"]
             # Initialize spherical expansion calculators
             self._spherical_expansion_1 = SphericalExpansion(
@@ -307,13 +339,15 @@ class DescriptorCalculator(torch.nn.Module):
         if mask_system is True:
             if self._masked_system_type is None:
                 raise ValueError(
-                    "cannot compute descriptor for a masked system if ``masked_system_type``"
-                    " not passed to the constructor"
+                    "cannot compute descriptor for a masked system if"
+                    " ``masked_system_type`` not passed to the constructor"
                 )
 
         # Compute descriptor according to the specific algorithm
         descriptor = getattr(self, "_" + self._descriptor_hypers["descriptor_type"])(
-            frames=frames, selected_keys=self._in_keys, mask_system=mask_system,
+            frames=frames,
+            selected_keys=self._in_keys,
+            mask_system=mask_system,
         )
 
         # Re-index "system" metadata along samples axis
@@ -383,13 +417,15 @@ class DescriptorCalculator(torch.nn.Module):
                     active_atom_samples.extend([A, i])
                 for i in buffer_atom_idxs:
                     buffer_atom_samples.extend([A, i])
-            
+
             # Compute Spherical Expansion for atoms in the active region
             density_active = calculator.compute(
                 system.frame_to_atomistic_system(frames),
                 selected_samples=mts.Labels(
                     names=["system", "atom"],
-                    values=torch.tensor(active_atom_samples, dtype=torch.int64).reshape(-1, 2),
+                    values=torch.tensor(active_atom_samples, dtype=torch.int64).reshape(
+                        -1, 2
+                    ),
                 ),
             )
             # Compute Spherical Expansion for atoms in the buffer region
@@ -397,7 +433,9 @@ class DescriptorCalculator(torch.nn.Module):
                 system.frame_to_atomistic_system(frames),
                 selected_samples=mts.Labels(
                     names=["system", "atom"],
-                    values=torch.tensor(buffer_atom_samples, dtype=torch.int64).reshape(-1, 2),
+                    values=torch.tensor(buffer_atom_samples, dtype=torch.int64).reshape(
+                        -1, 2
+                    ),
                 ),
             )
             # Re-type the center species, i.e. for carbon 6 -> 1006, for gold 79 -> 1079
@@ -425,7 +463,7 @@ class DescriptorCalculator(torch.nn.Module):
                 key_idxs = density.keys.select(selected_keys)
                 density = mts.TensorMap(
                     keys=mts.Labels(density.keys.names, density.keys.values[key_idxs]),
-                    blocks=[block for i, block in enumerate(density) if i in key_idxs]
+                    blocks=[block for i, block in enumerate(density) if i in key_idxs],
                 )
 
         else:
@@ -493,16 +531,12 @@ class DescriptorCalculator(torch.nn.Module):
         )
 
         # Rename properties
-        density_1 = mts.rename_dimension(
-            density_1, "properties", "n", "n_1"
-        )
+        density_1 = mts.rename_dimension(density_1, "properties", "n", "n_1")
         density_1 = mts.rename_dimension(
             density_1, "properties", "neighbor_type", "neighbor_1_type"
         )
 
-        density_2 = mts.rename_dimension(
-            density_2, "properties", "n", "n_2"
-        )
+        density_2 = mts.rename_dimension(density_2, "properties", "n", "n_2")
         density_2 = mts.rename_dimension(
             density_2, "properties", "neighbor_type", "neighbor_2_type"
         )
@@ -560,21 +594,15 @@ class DescriptorCalculator(torch.nn.Module):
         )
 
         # Rename properties
-        density_1 = mts.rename_dimension(
-            density_1, "properties", "n", "n_1"
-        )
+        density_1 = mts.rename_dimension(density_1, "properties", "n", "n_1")
         density_1 = mts.rename_dimension(
             density_1, "properties", "neighbor_type", "neighbor_1_type"
         )
-        density_2 = mts.rename_dimension(
-            density_2, "properties", "n", "n_2"
-        )
+        density_2 = mts.rename_dimension(density_2, "properties", "n", "n_2")
         density_2 = mts.rename_dimension(
             density_2, "properties", "neighbor_type", "neighbor_2_type"
         )
-        density_3 = mts.rename_dimension(
-            density_3, "properties", "n", "n_3"
-        )
+        density_3 = mts.rename_dimension(density_3, "properties", "n", "n_3")
         density_3 = mts.rename_dimension(
             density_3, "properties", "neighbor_type", "neighbor_3_type"
         )
@@ -629,6 +657,8 @@ class DescriptorCalculator(torch.nn.Module):
             selected_keys=None,
             mask_system=mask_system,
         )
+
+        return density_sr
 
     def _rho2(
         self,
@@ -697,9 +727,9 @@ class DescriptorCalculator(torch.nn.Module):
         else:
             angular_cutoff = mts.Labels(
                 names=["o3_lambda"],
-                values=_dispatch.arange(
-                    0, self._angular_cutoff + 1, "torch"
-                ).reshape(-1, 1),
+                values=_dispatch.arange(0, self._angular_cutoff + 1, "torch").reshape(
+                    -1, 1
+                ),
             )
         rho2 = self._cg_product.compute(
             _increment_property_names(density, 1),
@@ -796,7 +826,7 @@ class DescriptorCalculator(torch.nn.Module):
         # Concatenate features
         def _rename_properties(tensor, nu: int):
             new_blocks = []
-            for key, block in tensor.items():
+            for block in tensor:
                 new_blocks.append(
                     mts.TensorBlock(
                         samples=block.samples,
@@ -892,7 +922,7 @@ class DescriptorCalculator(torch.nn.Module):
         # Concatenate features
         def _rename_properties(tensor, nu: int):
             new_blocks = []
-            for key, block in tensor.items():
+            for block in tensor:
                 new_blocks.append(
                     mts.TensorBlock(
                         samples=block.samples,
@@ -913,7 +943,7 @@ class DescriptorCalculator(torch.nn.Module):
             [
                 _rename_properties(rho3, 3),
                 _rename_properties(rho2, 2),
-                _rename_properties(rho1, 1)
+                _rename_properties(rho1, 1),
             ],
             axis="properties",
             remove_tensor_name=True,
@@ -958,7 +988,7 @@ class EquivariantPCA(torch.nn.Module):
     def _get_mean(values: torch.tensor, lambda_key: int) -> float:
         # TODO: use mean for invariants. For now, zero mean for all.
         return 0.0
-        # if l == 0:
+        # if o3_lambda == 0:
         #     sums = np.sum(values.detach().numpy(), axis=1)
         #     signs = torch.from_numpy(((sums <= 0) - 0.5) * 2.0)
         #     values = signs[:, None] * values
@@ -975,7 +1005,9 @@ class EquivariantPCA(torch.nn.Module):
         return eigs, Vt.T
 
     @staticmethod
-    def _svd_flip(u: torch.tensor, v: torch.tensor) -> Tuple[torch.tensor, torch.tensor]:
+    def _svd_flip(
+        u: torch.tensor, v: torch.tensor
+    ) -> Tuple[torch.tensor, torch.tensor]:
         """translated from sklearn implementation"""
         max_abs_cols = torch.argmax(abs(u), axis=0)
         signs = torch.sign(u[max_abs_cols, range(u.shape[1])])
@@ -983,7 +1015,9 @@ class EquivariantPCA(torch.nn.Module):
         v *= signs[:, None]
         return u, v
 
-    def _fit(self, values: torch.tensor, lambda_key: int) -> Tuple[torch.tensor, torch.tensor, torch.tensor]:
+    def _fit(
+        self, values: torch.tensor, lambda_key: int
+    ) -> Tuple[torch.tensor, torch.tensor, torch.tensor]:
         nsamples, ncomps, nprops = values.shape
         values = values.reshape(nsamples * ncomps, nprops)
 
@@ -995,7 +1029,7 @@ class EquivariantPCA(torch.nn.Module):
     def fit(self, tensor: mts.TensorMap) -> None:
         """Fit the EPCA"""
         if self._is_fitted:
-            raise RuntimeError(f"EquivariantPCA is already fitted.")
+            raise RuntimeError("EquivariantPCA is already fitted.")
 
         values_: List[torch.tensor] = []
         explained_variance_: List[torch.tensor] = []
@@ -1067,7 +1101,7 @@ class EquivariantPCA(torch.nn.Module):
     def transform(self, tensor: mts.TensorMap) -> mts.TensorMap:
         """Transform a new TensorMap using the stored fit"""
         if not self._is_fitted:
-            raise RuntimeError(f"EquivariantPCA is not fitted.")
+            raise RuntimeError("EquivariantPCA is not fitted.")
 
         blocks: List[mts.TensorBlock] = []
 
@@ -1075,7 +1109,7 @@ class EquivariantPCA(torch.nn.Module):
             # Retrieve components and mean for this block from the stored fit
             retained = self.retained_components_[idx]
             components = self.components_[idx]
-            
+
             if components is None:
                 raise RuntimeError(
                     f"No PCA components found for block {idx}. "
@@ -1117,6 +1151,7 @@ class EquivariantPCA(torch.nn.Module):
 
 # ===== Helper functions =====
 
+
 def acdc_drop_redundant_properties(
     tensor: mts.TensorMap, correlation_order: int
 ) -> mts.TensorMap:
@@ -1126,11 +1161,14 @@ def acdc_drop_redundant_properties(
 
     The properties that are kept are the ones that satisfy the inequality:
 
-        "neighbor_1_type" <= "neighbor_2_type" <= ... <= "neighbor__{correlation_order}_type"
+        "neighbor_1_type" <= "neighbor_2_type"
+           <= ... <= "neighbor__{correlation_order}_type"
+
         and
+
         "n_1" <= "n_2" <= ... <= "n_{correlation_order}"
     """
-    
+
     # Drop the redundant properties
     l_in_keys = "l_1" in tensor.keys.names
     new_blocks = []
@@ -1144,20 +1182,21 @@ def acdc_drop_redundant_properties(
         # Check the l list is uniform if it's in the keys
         if l_in_keys:
             l_list = [key[f"l_{i}"] for i in range(1, correlation_order + 1)]
-            assert all([l == l_list[0] for l in l_list])
-
+            assert all([o3_lambda == l_list[0] for o3_lambda in l_list])
 
         # Remove redundant properties from invariant blocks
         keep = []
         for i, p in enumerate(block.properties):
-            
+
             if not l_in_keys:
                 l_list = [p[f"l_{i}"] for i in range(1, correlation_order + 1)]
-                assert all([l == l_list[0] for l in l_list])
-            
+                assert all([o3_lambda == l_list[0] for o3_lambda in l_list])
+
             # Now filter based on "n" and "neighbor_type"
             n_list = [p[f"n_{i}"] for i in range(1, correlation_order + 1)]
-            neigh_list = [p[f"neighbor_{i}_type"] for i in range(1, correlation_order + 1)]
+            neigh_list = [
+                p[f"neighbor_{i}_type"] for i in range(1, correlation_order + 1)
+            ]
 
             if sorted(n_list) == n_list and sorted(neigh_list) == neigh_list:
                 keep.append(i)
@@ -1174,6 +1213,5 @@ def acdc_drop_redundant_properties(
                 values=block.values[..., keep],
             )
         )
-    
-    return mts.TensorMap(tensor.keys, new_blocks)
 
+    return mts.TensorMap(tensor.keys, new_blocks)

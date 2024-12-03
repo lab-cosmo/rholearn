@@ -1,12 +1,11 @@
-from os.path import join 
+from os.path import join
 from typing import List, Optional, Tuple, Union
-from chemfiles import Frame
 
 import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.ticker import LogLocator, FuncFormatter
-
 import metatensor
+import numpy as np
+from chemfiles import Frame
+from matplotlib.ticker import FuncFormatter, LogLocator
 
 from rholearn.utils import system
 
@@ -27,9 +26,13 @@ def plot_ovlp_by_separation(
         atom_types.update(system.get_types(frame))
 
     atom_types = {atom_type: i for i, atom_type in enumerate(sorted(atom_types))}
-    
+
     fig, axes = plt.subplots(
-        len(atom_types), len(atom_types), figsize=(2 * len(atom_types), 2 * len(atom_types)), sharex=True, sharey=True
+        len(atom_types),
+        len(atom_types),
+        figsize=(2 * len(atom_types), 2 * len(atom_types)),
+        sharex=True,
+        sharey=True,
     )
 
     for frame, overlap in zip(frames, overlaps):
@@ -42,10 +45,7 @@ def plot_ovlp_by_separation(
 
             ax = axes[atom_types[a1], atom_types[a2]]
 
-            distances = [
-                frame.distance(i1, i2)
-                for (_, i1, i2) in block.samples
-            ]
+            distances = [frame.distance(i1, i2) for (_, i1, i2) in block.samples]
             ax.scatter(
                 distances,
                 [np.max(np.abs(matrix)) for matrix in block.values],
@@ -66,13 +66,18 @@ def plot_ovlp_by_separation(
         axes[-1, i].set_xlabel(f"r_ij, alpha = {atom_type}")
 
     if save_dir is not None:
-        plt.savefig(join(save_dir, "ovlp_by_separation.png"), dpi=300, bbox_inches="tight")
+        plt.savefig(
+            join(save_dir, "ovlp_by_separation.png"), dpi=300, bbox_inches="tight"
+        )
 
     return
 
 
 def plot_training(
-    train_dir: callable, labels: List[str], save_dir: str, xlim: Optional[Tuple[float]] = None
+    train_dir: callable,
+    labels: List[str],
+    save_dir: str,
+    xlim: Optional[Tuple[float]] = None,
 ) -> None:
     """
     Makes 3-panel subplots of the training loss, validation loss, and LR, parsed from
@@ -83,19 +88,14 @@ def plot_training(
     legend.
     """
     # Parse data from `train_dir`/outputs/train.log
-    data_fields = [
-        "epoch", "train_loss", "val_loss", "dt_train", "dt_val", "lr"
-    ]
-    results = {
-        label: {field: [] for field in data_fields} 
-        for label in labels
-    }
+    data_fields = ["epoch", "train_loss", "val_loss", "dt_train", "dt_val", "lr"]
+    results = {label: {field: [] for field in data_fields} for label in labels}
     for label in labels:
         with open(join(train_dir(label), "outputs/train.log"), "r") as f:
             lines = f.readlines()
 
         for line in lines:
-        
+
             line = line.split()
             if len(line) < 3:
                 continue
@@ -117,7 +117,9 @@ def plot_training(
         val_losses = np.array(results[label]["val_loss"])
         lrs = np.array(results[label]["lr"])
         if xlim is not None:
-            epoch_mask = [i for i, epoch in enumerate(results[label]["epoch"]) if epoch >= xlim[0]]
+            epoch_mask = [
+                i for i, epoch in enumerate(results[label]["epoch"]) if epoch >= xlim[0]
+            ]
             epochs = epochs[epoch_mask]
             train_losses = train_losses[epoch_mask]
             val_losses = val_losses[epoch_mask]
@@ -142,8 +144,8 @@ def plot_training(
         )
 
     # Formatting
-    [ax.set_xscale("log") for ax in axes];
-    [ax.set_yscale("log") for ax in axes];
+    [ax.set_xscale("log") for ax in axes]
+    [ax.set_yscale("log") for ax in axes]
     axes[0].legend()
     axes[-1].set_xlabel("epoch")
     axes[0].set_ylabel("train_loss")
@@ -155,8 +157,12 @@ def plot_training(
 
     return
 
+
 def plot_val_loss_curve(
-    train_dir: callable, labels: List[str], save_dir: str, x_axis: List[int],
+    train_dir: callable,
+    labels: List[str],
+    save_dir: str,
+    x_axis: List[int],
 ) -> None:
     """
     Makes 3-panel subplots of the training loss, validation loss, and LR, parsed from
@@ -167,17 +173,14 @@ def plot_val_loss_curve(
     legend.
     """
     # Parse data from `train_dir`/outputs/train.log
-    results = {
-        label: {"best": None, "last": None}
-        for label in labels
-    }
+    results = {label: {"best": None, "last": None} for label in labels}
     for label in labels:
         with open(join(train_dir(label), "outputs/train.log"), "r") as f:
             lines = f.readlines()
 
         val_losses = []
         for line in lines:
-        
+
             line = line.split()
             if len(line) < 3:
                 continue
@@ -228,7 +231,10 @@ def plot_val_loss_curve(
 
 
 def plot_test_error_learning_curve(
-    train_dir: callable, labels: List[str], save_dir: str, x_axis: List[int],
+    train_dir: callable,
+    labels: List[str],
+    save_dir: str,
+    x_axis: List[int],
 ) -> None:
     """
     Makes 3-panel subplots of the training loss, validation loss, and LR, parsed from
@@ -243,7 +249,7 @@ def plot_test_error_learning_curve(
     results = {
         label: {
             "ri": {field: [] for field in field_names},
-            "scf": {field: [] for field in field_names}
+            "scf": {field: [] for field in field_names},
         }
         for label in labels
     }
@@ -252,7 +258,7 @@ def plot_test_error_learning_curve(
             lines = f.readlines()
 
         for line in lines:
-        
+
             line = line.split()
             if len(line) < 3:
                 continue
@@ -303,7 +309,7 @@ def plot_pretrainer_val_losses(
     train_dir: callable,
     labels: Union[List[str], List[List[str]]],
     save_dir: str,
-    x_axis: Union[List[int], List[List[int]]], 
+    x_axis: Union[List[int], List[List[int]]],
     legend: List[str],
 ):
     """
@@ -334,7 +340,6 @@ def plot_pretrainer_val_losses(
                     val_loss = float(line[7])
                     val_losses.append(val_loss)
 
-    
         ax.plot(x_axis_, val_losses, marker=".", label=legend_)
 
     ax.set_xscale("log", base=2)
@@ -348,16 +353,15 @@ def plot_pretrainer_val_losses(
     ax.xaxis.set_major_formatter(FuncFormatter(_log_formatter))
 
     plt.savefig(
-        join(save_dir, "pretrainer_val_losses.png"),
-        dpi=300, 
-        bbox_inches="tight"
+        join(save_dir, "pretrainer_val_losses.png"), dpi=300, bbox_inches="tight"
     )
 
     return
 
+
 def _log_formatter(x, pos):
     """Custom formatter function to display integers on x axis"""
-    return f'{int(x)}'
+    return f"{int(x)}"
 
 
 def plot_slab_density_errors(
@@ -372,7 +376,6 @@ def plot_slab_density_errors(
     """
     Plots the binned SCF and RI densities as a function of z-coordinate, and the error.
     """
-    dir = "light_global"
     scf = np.loadtxt(join(aims_output_dir, "rho_scf.out"))
     ri = np.loadtxt(join(aims_output_dir, "rho_rebuilt_ri.out"))
     grid = np.loadtxt(join(aims_output_dir, "partition_tab.out"))
@@ -391,13 +394,9 @@ def plot_slab_density_errors(
     ris = []
     errors = []
     for i in range(1, len(bins)):
-        mask = (grid[:, 2] >= bins[i-1]) & (grid[:, 2] < bins[i])
-        scf_density = scf[mask, 3]
-        ri_density = ri[mask, 3]
-        
+        mask = (grid[:, 2] >= bins[i - 1]) & (grid[:, 2] < bins[i])
         scfs.append((scf[mask, 3] * grid[mask, 3]).mean())
         ris.append((ri[mask, 3] * grid[mask, 3]).mean())
-
         abs_error = np.dot(np.abs(ri[mask, 3] - scf[mask, 3]), grid[mask, 3])
         if error == "nmae":
             normalization = np.dot(scf[mask, 3], grid[mask, 3])
@@ -411,16 +410,19 @@ def plot_slab_density_errors(
     axes[0].scatter(bins[1:], scfs, label="SCF density", marker=".")
     axes[0].scatter(bins[1:], ris, label="RI density", marker=".")
     axes[1].scatter(bins[1:], errors, label=f"{error}", marker=".")
-    [ax.set_yscale("log") for ax in axes];
-    [ax.legend() for ax in axes];
+    [ax.set_yscale("log") for ax in axes]
+    [ax.legend() for ax in axes]
 
     # Region marking
     if surface_depth is not None:
-        [ax.axvline(- surface_depth, color="green", linestyle="--") for ax in axes];
+        [ax.axvline(-surface_depth, color="green", linestyle="--") for ax in axes]
     if buffer_depth is not None:
-        [ax.axvline(-surface_depth - buffer_depth, color="orange", linestyle="--") for ax in axes];
+        [
+            ax.axvline(-surface_depth - buffer_depth, color="orange", linestyle="--")
+            for ax in axes
+        ]
 
     if save_dir is not None:
         plt.savefig(join(save_dir, "slab_density_errors.png"))
 
-    return    
+    return

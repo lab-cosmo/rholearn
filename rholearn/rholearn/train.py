@@ -1,7 +1,6 @@
 import os
 import time
-from functools import partial
-from os.path import exists, join
+from os.path import join
 from typing import List
 
 import metatensor.torch as mts
@@ -49,7 +48,7 @@ def train():
         frame_idxs = dft_options.get("IDX_SUBSET")
     else:
         frame_idxs = list(range(len(all_frames)))
-    
+
     # Exclude some structures if specified
     if dft_options["IDX_EXCLUDE"] is not None:
         frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
@@ -68,7 +67,10 @@ def train():
     )
     if ml_options["OVERFIT"] is True:
         overfit_idx = all_subset_id[0][0]
-        io.log(log_path, f"WARNING: performing overfitting experiment on structure {overfit_idx}")
+        io.log(
+            log_path,
+            f"WARNING: performing overfitting experiment on structure {overfit_idx}",
+        )
         all_subset_id[0] = [overfit_idx]
         all_subset_id[1] = [overfit_idx]
         all_subset_id[2] = [overfit_idx]
@@ -141,7 +143,7 @@ def train():
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                 "model.pt",
             ),
-            weights_only=False
+            weights_only=False,
         )
         descriptor_calculator = model._descriptor_calculator
 
@@ -156,14 +158,17 @@ def train():
                     ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                     "optimizer_state_dict.pt",
                 ),
-                weights_only=False
+                weights_only=False,
             )
         )
 
         # Load scheduler
         scheduler = None
         if ml_options["SCHEDULER_ARGS"] is not None:
-            io.log(log_path, f"Loading scheduler from checkpoint: {ml_options['SCHEDULER']}")
+            io.log(
+                log_path,
+                f"Loading scheduler from checkpoint: {ml_options['SCHEDULER']}",
+            )
             scheduler = train_utils.get_scheduler(
                 optimizer, ml_options["SCHEDULER"], ml_options["SCHEDULER_ARGS"]
             )
@@ -173,7 +178,7 @@ def train():
                         ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                         "scheduler_state_dict.pt",
                     ),
-                    weights_only=False
+                    weights_only=False,
                 )
             )
 
@@ -183,14 +188,19 @@ def train():
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                 "val_loss.pt",
             ),
-            weights_only=False
+            weights_only=False,
         )
 
     # ===== Initialize loss functions =====
-    io.log(log_path, f"Initializing train loss fn with args: {ml_options['LOSS_FN']['train']}")
+    io.log(
+        log_path,
+        f"Initializing train loss fn with args: {ml_options['LOSS_FN']['train']}",
+    )
     train_loss_fn = RhoLoss(**ml_options["LOSS_FN"]["train"])
-    
-    io.log(log_path, f"Initializing val loss fn with args: {ml_options['LOSS_FN']['val']}")
+
+    io.log(
+        log_path, f"Initializing val loss fn with args: {ml_options['LOSS_FN']['val']}"
+    )
     val_loss_fn = RhoLoss(**ml_options["LOSS_FN"]["val"])
 
     # ===== Create datasets and dataloaders =====
@@ -204,20 +214,20 @@ def train():
             for attr in descriptor_calculator.__dir__():
                 if attr.startswith("_epca"):
                     if (
-                        ml_options["TRAIN"]["restart_epoch"] is None 
-                        and ml_options["LOAD_MODEL"] is None 
+                        ml_options["TRAIN"]["restart_epoch"] is None
+                        and ml_options["LOAD_MODEL"] is None
                     ):
                         # If the model is newly initialized (i.e. not loaded) and PCA is
                         # to be used, ensure they are currently not fitted
-                        assert getattr(descriptor_calculator, attr)._is_fitted is False, (
-                            "PCAs should not already be fitted"
-                        )
+                        assert (
+                            getattr(descriptor_calculator, attr)._is_fitted is False
+                        ), "PCAs should not already be fitted"
                     else:
                         # The PCA should already be fitted
-                        assert getattr(descriptor_calculator, attr)._is_fitted is False, (
-                            "PCAs should not already be fitted"
-                        )
-        
+                        assert (
+                            getattr(descriptor_calculator, attr)._is_fitted is False
+                        ), "PCAs should not already be fitted"
+
         # Build training dataset
         train_dataset = train_utils.get_dataset(
             frames=[all_frames[A] for A in all_subset_id[0]],
@@ -234,17 +244,17 @@ def train():
         )
 
         if (
-            ml_options["TRAIN"]["restart_epoch"] is None 
-            and ml_options["LOAD_MODEL"] is None 
+            ml_options["TRAIN"]["restart_epoch"] is None
+            and ml_options["LOAD_MODEL"] is None
             and ml_options["DESCRIPTOR_HYPERS"]["use_pca"] is True
         ):
             # If newly initializing a model and using PCAs, check that they are now
             # fitted.
             for attr in descriptor_calculator.__dir__():
                 if attr.startswith("_epca"):
-                    assert getattr(descriptor_calculator, attr)._is_fitted is True, (
-                        "PCAs should now be fitted"
-                    )
+                    assert (
+                        getattr(descriptor_calculator, attr)._is_fitted is True
+                    ), "PCAs should now be fitted"
 
     # Dataset - val
     io.log(log_path, "Build validation dataset")
@@ -288,7 +298,11 @@ def train():
         dataset=train_dataset,
         join_kwargs=join_kwargs,
         dloader_kwargs={
-            "batch_size": len(train_dataset) if ml_options["OPTIMIZER"] == "LBFGS" else ml_options["TRAIN"].get("batch_size"),
+            "batch_size": (
+                len(train_dataset)
+                if ml_options["OPTIMIZER"] == "LBFGS"
+                else ml_options["TRAIN"].get("batch_size")
+            ),
             "shuffle": True,
         },
     )
@@ -306,14 +320,15 @@ def train():
 
     # Initialize the model (if not loading it). This needs to happen after construction
     # of the training dataset in case PCA fitting occurred.
-    if ml_options["TRAIN"]["restart_epoch"] is None: 
+    if ml_options["TRAIN"]["restart_epoch"] is None:
         if ml_options["LOAD_MODEL"]["path"] is None:
             io.log(log_path, "Initializing model")
             in_properties = train_utils.center_types_to_descriptor_basis_in_properties(
                 in_keys, descriptor_calculator
             )
             out_properties = train_utils.target_basis_set_to_out_properties(
-                in_keys, target_basis,
+                in_keys,
+                target_basis,
             )
             model = RhoModel(
                 in_keys=in_keys,
@@ -331,7 +346,7 @@ def train():
 
         # Initialize the best validation loss
         best_val_loss = torch.tensor(float("inf"))
-    
+
     # Log model architecture
     io.log(log_path, str(model).replace("\n", f"\n# {utils.timestamp()}"))
 
@@ -351,8 +366,8 @@ def train():
     )
 
     # For loss evaluation, the target coefficients need to be converted from being block
-    # sparse in angular order and species type to just block sparse in species type. Modify
-    # the data in the training and validation datasets
+    # sparse in angular order and species type to just block sparse in species type.
+    # Modify the data in the training and validation datasets
     train_dataset._data["target_c"] = [
         convert.coeff_vector_to_sparse_by_center_type(c, "torch")
         for c in train_dataset._data["target_c"]
@@ -379,7 +394,9 @@ def train():
         )
         if loaded_val_loss < best_val_loss:
             best_val_loss = loaded_val_loss
-    io.log(log_path, f"Validation loss of model before (pre)training: {loaded_val_loss}")
+    io.log(
+        log_path, f"Validation loss of model before (pre)training: {loaded_val_loss}"
+    )
 
     # Finish setup
     dt_setup = time.time() - t0_setup
@@ -396,10 +413,12 @@ def train():
         # Standardize the targets, if applicable
         if ml_options["STANDARDIZE_TARGETS"]:
             all_train_target_c = train_utils.standardize_tensor(
-                all_train_target_c, standardizer,
+                all_train_target_c,
+                standardizer,
             )
             all_val_target_c = train_utils.standardize_tensor(
-                all_val_target_c, standardizer,
+                all_val_target_c,
+                standardizer,
             )
 
         # Fit the pretrainer on the training subset
@@ -412,21 +431,24 @@ def train():
 
         # Write validation block losses to file (and regularizer if using RidgeCV)
         io.log(log_path, "Pretrainer validation losses:")
-        if ml_options['PRETRAIN_ARGS'].get('alphas') is None:
+        if ml_options["PRETRAIN_ARGS"].get("alphas") is None:
             for key, pretrain_val_loss in zip(
                 model._in_keys,
                 model._pretrainer._best_val_losses,
             ):
                 io.log(log_path, f"  key {key} pretrain_val_loss {pretrain_val_loss}")
-        
+
         else:
             for key, pretrain_val_loss, alpha in zip(
                 model._in_keys,
                 model._pretrainer._best_val_losses,
                 model._pretrainer._best_alphas,
             ):
-                io.log(log_path, f"  key {key} pretrain_val_loss {pretrain_val_loss} alpha {alpha}")
-        
+                io.log(
+                    log_path,
+                    f"  key {key} pretrain_val_loss {pretrain_val_loss} alpha {alpha}",
+                )
+
         # Initialize the weights using the pretrainer
         model._initialize_weights_from_pretrainer()
 
@@ -442,7 +464,7 @@ def train():
             if pretrained_val_loss < best_val_loss:
                 best_val_loss = pretrained_val_loss
         io.log(log_path, f"Validation loss of pretrained model: {pretrained_val_loss}")
-        
+
         # Save a checkpoint of the pretrained model
         train_utils.save_checkpoint(
             model,
@@ -453,7 +475,7 @@ def train():
         )
 
         # Also save the results
-        if ml_options['PRETRAIN_ARGS'].get('alphas') is None:
+        if ml_options["PRETRAIN_ARGS"].get("alphas") is None:
             torch.save(
                 torch.tensor(model._pretrainer._best_val_losses),
                 join(ml_options["ML_DIR"], "outputs", "pretrainer_val_losses.pt"),
@@ -473,11 +495,11 @@ def train():
         pretrain_val_input_c = model._pretrainer.predict(all_val_descriptor)
         if ml_options["STANDARDIZE_TARGETS"]:
             mts.save(
-                "pretrain_input_c.npz", 
-                train_utils.unstandardize_tensor(pretrain_val_input_c, standardizer)
+                "pretrain_input_c.npz",
+                train_utils.unstandardize_tensor(pretrain_val_input_c, standardizer),
             )
             mts.save(
-                "target_c.npz", 
+                "target_c.npz",
                 train_utils.unstandardize_tensor(all_val_target_c, standardizer),
             )
         else:
@@ -486,7 +508,10 @@ def train():
 
         # Finish pretrain
         dt_pretrain = time.time() - t0_pretrain
-        io.log(log_path, train_utils.report_dt(dt_pretrain, "Analytical pretraining complete"))
+        io.log(
+            log_path,
+            train_utils.report_dt(dt_pretrain, "Analytical pretraining complete"),
+        )
 
     # Try a model save/load
     torch.save(model, join(ml_options["ML_DIR"], "model.pt"))
@@ -499,7 +524,7 @@ def train():
     # ===== Training loop =====
 
     # Initialize the optimizer and scheduler (if not loading them)
-    if ml_options["TRAIN"]["restart_epoch"] is None: 
+    if ml_options["TRAIN"]["restart_epoch"] is None:
 
         # Initialize optimizer
         io.log(log_path, "Initializing optimizer")
@@ -525,17 +550,21 @@ def train():
                 # Create a labels object for freezing parameters that match a specific
                 # key selection
                 assert "names" in freeze.keys() and "values" in freeze.keys(), (
-                    "Must pass key selection 'names' and 'values' for freezing parameters."
+                    "Must pass key selection 'names' and 'values'"
+                    " for freezing parameters."
                 )
                 selected_keys = mts.Labels(
                     names=freeze["names"],
-                    values=torch.tensor(freeze["values"], dtype=torch.int64).reshape(-1, len(freeze["names"])),
+                    values=torch.tensor(freeze["values"], dtype=torch.int64).reshape(
+                        -1, len(freeze["names"])
+                    ),
                 )
                 model._set_requires_grad(map_name, False, selected_keys)
 
     io.log(
         log_path,
-        f"Start training by gradient descent over epochs {epochs[0]} -> {epochs[-1]} (inclusive)",
+        "Start training by gradient descent over"
+        f" epochs {epochs[0]} -> {epochs[-1]} (inclusive)",
     )
 
     t0_training = time.time()
@@ -676,10 +705,10 @@ def _check_input_settings(dft_options: dict, ml_options: dict, frame_idxs: List[
             " sets must be <= the number of frames"
         )
     if ml_options["OPTIMIZER"] == "LBFGS":
-        assert ml_options["TRAIN"].get("batch_size") is None, (
-            "Cannot use minibatching with LBFGS"
-        )
+        assert (
+            ml_options["TRAIN"].get("batch_size") is None
+        ), "Cannot use minibatching with LBFGS"
     else:
-        assert ml_options["TRAIN"].get("batch_size") is not None, (
-            "Must supply a TRAIN['batch_size'] option."
-        )
+        assert (
+            ml_options["TRAIN"].get("batch_size") is not None
+        ), "Must supply a TRAIN['batch_size'] option."
