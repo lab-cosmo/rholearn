@@ -987,7 +987,9 @@ def split_tensormap_by_system(
         mts.slice(
             tensor,
             "samples",
-            selection=mts.Labels(names="system", values=torch.tensor([A]).reshape(-1, 1)),
+            selection=mts.Labels(
+                names="system", values=torch.tensor([A]).reshape(-1, 1)
+            ),
         )
         for A in system_ids
     ]

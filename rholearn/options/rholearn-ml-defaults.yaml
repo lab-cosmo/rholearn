@@ -2,11 +2,36 @@
 # initialize model parameters
 SEED: 42
 
+
 # Rascaline SphericalExpansion hyperparameters
 DESCRIPTOR_HYPERS:
   descriptor_type: null
   angular_cutoff: null
   use_pca: null
+
+# For example:
+# DESCRIPTOR_HYPERS:
+#   descriptor_type: rho2
+#   spherical_expansion_hypers:
+#     cutoff:
+#       radius: 3.0
+#       smoothing:
+#         type: ShiftedCosine
+#         width: 0.1
+#     density:
+#       type: Gaussian
+#       width: 0.3
+#       scaling:
+#         type: Willatt2018
+#         exponent: 7
+#         rate: 1
+#         scale: 2.0
+#     basis:
+#       type: TensorProduct
+#       max_angular: 5
+#       radial:
+#         type: Gto
+#         max_radial: 7
 
 # Pretraining with analytical weights
 PRETRAIN: false
