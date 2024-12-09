@@ -89,6 +89,7 @@ TRAIN:
   restart_epoch: null  # epoch of last saved checkpoint, or null for no restart
   val_interval: 50  # validate every x intervals
   log_interval: 50  # epoch interval at which to log metrics
+  log_grad_norms: null  # epoch interval at which to log mean gradient norms of each module
   checkpoint_interval: 50  # save model and optimizer state every x intervals
 
 # Evaluation options
@@ -96,10 +97,7 @@ EVAL:
   eval_epoch: best
   subset_size: null
   target_type: [ri, scf]  # evaluate against "scf" or "ri" reference, or both
-  stm: 
-    mode: null
-    options: {}
-
+  generate_stm: false
 
 # Run an overfitting experiment. This uses a single (and the same) structure in the
 # training and validation datasets.

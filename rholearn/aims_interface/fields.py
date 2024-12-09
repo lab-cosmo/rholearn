@@ -12,7 +12,7 @@ def field_absolute_error(
     input: np.ndarray,
     target: np.ndarray,
     grid: np.ndarray,
-    already_sorted: bool = False,
+    # already_sorted: bool = False,
 ) -> Tuple[float]:
     """
     Calculates and returns:
@@ -25,30 +25,30 @@ def field_absolute_error(
     - the normalization factor: the ``target`` field, integrated over all space as
         above.
 
-    All of ``input``, ``target``, and ``grid`` are arrays of shape (N_points, 4), where
-    the first 3 columns at the xyz coordinates of each grid point, and final column is
-    the value of the field at that point, or the integration weight in the case of
-    ``grid``.
+    ``input`` and ``target`` are arrays of shape (N_points,) and ``grid`` is an array of
+    shape (N_points, 4), where the first 3 columns at the xyz coordinates of each grid
+    point, and final column is the value of the field at that point, or the integration
+    weight in the case of ``grid``.
     """
-    if not (
-        np.all(input[:, :3] == target[:, :3]) and np.all(target[:, :3] == grid[:, :3])
-    ):
+    # if not (
+    #     np.all(input[:, :3] == target[:, :3]) and np.all(target[:, :3] == grid[:, :3])
+    # ):
 
-        if already_sorted:
-            raise ValueError(
-                "grid point coordinates are not equivalent between"
-                " input, target, and grid scalar fields"
-            )
+    #     if already_sorted:
+    #         raise ValueError(
+    #             "grid point coordinates are not equivalent between"
+    #             " input, target, and grid scalar fields"
+    #         )
 
-        else:  # sort the grid points and re-call the function
-            input = sort_field_by_grid_points(input)
-            target = sort_field_by_grid_points(target)
-            grid = sort_field_by_grid_points(grid)
+    #     else:  # sort the grid points and re-call the function
+    #         input = sort_field_by_grid_points(input)
+    #         target = sort_field_by_grid_points(target)
+    #         grid = sort_field_by_grid_points(grid)
 
-            return field_absolute_error(input, target, grid, already_sorted=True)
+    #         return field_absolute_error(input, target, grid, already_sorted=True)
 
-    abs_error = np.dot(np.abs(input[:, 3] - target[:, 3]), grid[:, 3])
-    normalization = np.dot(target[:, 3], grid[:, 3])
+    abs_error = np.dot(np.abs(input - target), grid[:, 3])
+    normalization = np.dot(target, grid[:, 3])
 
     return abs_error, normalization
 
@@ -57,7 +57,7 @@ def field_squared_error(
     input: np.ndarray,
     target: np.ndarray,
     grid: np.ndarray,
-    already_sorted: bool = False,
+    # already_sorted: bool = False,
 ) -> Tuple[float]:
     """
     Calculates and returns:
@@ -70,30 +70,30 @@ def field_squared_error(
         - the normalization factor: the ``target`` field, integrated over all space as
           above.
 
-    All of ``input``, ``target``, and ``grid`` are arrays of shape (N_points, 4), where
-    the first 3 columns at the xyz coordinates of each grid point, and final column is
-    the value of the field at that point, or the integration weight in the case of
-    ``grid``.
+    ``input`` and ``target`` are arrays of shape (N_points,) and ``grid`` is an array of
+    shape (N_points, 4), where the first 3 columns at the xyz coordinates of each grid
+    point, and final column is the value of the field at that point, or the integration
+    weight in the case of ``grid``.
     """
-    if not (
-        np.all(input[:, :3] == target[:, :3]) and np.all(target[:, :3] == grid[:, :3])
-    ):
+    # if not (
+    #     np.all(input[:, :3] == target[:, :3]) and np.all(target[:, :3] == grid[:, :3])
+    # ):
 
-        if already_sorted:
-            raise ValueError(
-                "grid point coordinates are not equivalent between"
-                " input, target, and grid scalar fields"
-            )
+    #     if already_sorted:
+    #         raise ValueError(
+    #             "grid point coordinates are not equivalent between"
+    #             " input, target, and grid scalar fields"
+    #         )
 
-        else:  # sort the grid points and re-call the function
-            input = sort_field_by_grid_points(input)
-            target = sort_field_by_grid_points(target)
-            grid = sort_field_by_grid_points(grid)
+    #     else:  # sort the grid points and re-call the function
+    #         input = sort_field_by_grid_points(input)
+    #         target = sort_field_by_grid_points(target)
+    #         grid = sort_field_by_grid_points(grid)
 
-            return field_squared_error(input, target, grid, already_sorted=True)
+    #         return field_squared_error(input, target, grid, already_sorted=True)
 
-    squared_error = np.dot((input[:, 3] - target[:, 3]) ** 2, grid[:, 3])
-    normalization = np.dot(target[:, 3], grid[:, 3])
+    squared_error = np.dot((input - target) ** 2, grid[:, 3])
+    normalization = np.dot(target, grid[:, 3])
 
     return squared_error, normalization
 

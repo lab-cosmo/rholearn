@@ -8,9 +8,10 @@ from typing import List, Optional, Tuple, Union
 import metatensor.torch as mts
 import torch
 from chemfiles import Frame
-from rascaline.torch import LodeSphericalExpansion, SphericalExpansion
-from rascaline.torch.utils import ClebschGordanProduct, DensityCorrelations
-from rascaline.torch.utils.clebsch_gordan._density_correlations import (
+from featomic.torch import LodeSphericalExpansion, SphericalExpansion
+from featomic.torch.clebsch_gordan import (
+    ClebschGordanProduct, DensityCorrelations)
+from featomic.torch.clebsch_gordan._density_correlations import (
     _filter_redundant_keys, _increment_property_names)
 
 from rholearn.rholearn import mask, train_utils
@@ -77,7 +78,7 @@ class DescriptorCalculator(torch.nn.Module):
                 "spherical_expansion_hypers"
             ]
             if descriptor_hypers["angular_cutoff"] is None:
-                max_angular = self._spherical_expansion_hypers["max_angular"] * 2
+                max_angular = self._spherical_expansion_hypers["basis"]["max_angular"] * 2
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
             self._angular_cutoff = descriptor_hypers["angular_cutoff"]
@@ -107,8 +108,8 @@ class DescriptorCalculator(torch.nn.Module):
             ]
             if descriptor_hypers["angular_cutoff"] is None:
                 max_angular = (
-                    self._spherical_expansion_1_hypers["max_angular"]
-                    + self._spherical_expansion_2_hypers["max_angular"]
+                    self._spherical_expansion_1_hypers["basis"]["max_angular"]
+                    + self._spherical_expansion_2_hypers["basis"]["max_angular"]
                 )
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
@@ -143,9 +144,9 @@ class DescriptorCalculator(torch.nn.Module):
             ]
             if descriptor_hypers["angular_cutoff"] is None:
                 max_angular = (
-                    self._spherical_expansion_1_hypers["max_angular"]
-                    + self._spherical_expansion_2_hypers["max_angular"]
-                    + self._spherical_expansion_3_hypers["max_angular"]
+                    self._spherical_expansion_1_hypers["basis"]["max_angular"]
+                    + self._spherical_expansion_2_hypers["basis"]["max_angular"]
+                    + self._spherical_expansion_3_hypers["basis"]["max_angular"]
                 )
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
@@ -182,8 +183,8 @@ class DescriptorCalculator(torch.nn.Module):
             ]
             if descriptor_hypers["angular_cutoff"] is None:
                 max_angular = (
-                    self._spherical_expansion_hypers["max_angular"]
-                    + self._lode_spherical_expansion_hypers["max_angular"]
+                    self._spherical_expansion_hypers["basis"]["max_angular"]
+                    + self._lode_spherical_expansion_hypers["basis"]["max_angular"]
                 )
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
@@ -205,13 +206,46 @@ class DescriptorCalculator(torch.nn.Module):
             else:
                 self._epca = EquivariantPCA(descriptor_hypers["epca_components"])
 
+        elif self._descriptor_hypers["descriptor_type"] == "V_x_V":
+
+            self._lode_spherical_expansion_1_hypers = descriptor_hypers[
+                "lode_spherical_expansion_1_hypers"
+            ]
+            self._lode_spherical_expansion_2_hypers = descriptor_hypers[
+                "lode_spherical_expansion_2_hypers"
+            ]
+            if descriptor_hypers["angular_cutoff"] is None:
+                max_angular = (
+                    self._lode_spherical_expansion_1_hypers["basis"]["max_angular"]
+                    + self._lode_spherical_expansion_2_hypers["basis"]["max_angular"]
+                )
+            else:
+                max_angular = descriptor_hypers["angular_cutoff"]
+            self._angular_cutoff = descriptor_hypers["angular_cutoff"]
+            self._spherical_expansion = LodeSphericalExpansion(
+                **self._lode_spherical_expansion_1_hypers
+            )
+            self._lode_spherical_expansion = LodeSphericalExpansion(
+                **self._lode_spherical_expansion_2_hypers
+            )
+            self._cg_product = ClebschGordanProduct(
+                max_angular=max_angular,
+                dtype=dtype,
+                device=device,
+            )
+
+            if descriptor_hypers.get("epca_components") is None:
+                self._epca = None
+            else:
+                self._epca = EquivariantPCA(descriptor_hypers["epca_components"])
+
         elif self._descriptor_hypers["descriptor_type"] == "rho3":
 
             self._spherical_expansion_hypers = descriptor_hypers[
                 "spherical_expansion_hypers"
             ]
             if descriptor_hypers["angular_cutoff"] is None:
-                max_angular = self._spherical_expansion_hypers["max_angular"] * 3
+                max_angular = self._spherical_expansion_hypers["basis"]["max_angular"] * 3
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
             self._angular_cutoff = descriptor_hypers["angular_cutoff"]
@@ -240,7 +274,7 @@ class DescriptorCalculator(torch.nn.Module):
                 "spherical_expansion_2_hypers"
             ]
             if descriptor_hypers["angular_cutoff"] is None:
-                max_angular = self._spherical_expansion_1_hypers["max_angular"] * 2
+                max_angular = self._spherical_expansion_1_hypers["basis"]["max_angular"] * 2
             else:
                 max_angular = descriptor_hypers["angular_cutoff"]
             self._angular_cutoff = descriptor_hypers["angular_cutoff"]
@@ -282,8 +316,8 @@ class DescriptorCalculator(torch.nn.Module):
             )
             # Initialize DensityCorrelations calculators
             if descriptor_hypers["angular_cutoff"] is None:
-                max_angular_1 = self._spherical_expansion_1_hypers["max_angular"] * 3
-                max_angular_2 = self._spherical_expansion_2_hypers["max_angular"] * 2
+                max_angular_1 = self._spherical_expansion_1_hypers["basis"]["max_angular"] * 3
+                max_angular_2 = self._spherical_expansion_2_hypers["basis"]["max_angular"] * 2
             else:
                 max_angular_1 = descriptor_hypers["angular_cutoff"]
                 max_angular_2 = descriptor_hypers["angular_cutoff"]
@@ -382,7 +416,7 @@ class DescriptorCalculator(torch.nn.Module):
     def _compute_density(
         self,
         frames: List[Frame],
-        calculator: SphericalExpansion,
+        calculator: Union[SphericalExpansion, LodeSphericalExpansion],
         mask_system: bool,
         selected_keys: Optional[mts.Labels] = None,
     ) -> mts.TensorMap:
@@ -651,14 +685,106 @@ class DescriptorCalculator(torch.nn.Module):
         """
         Computes an equivariant power spectrum descriptor.
         """
-        density_sr = self._compute_density(
+        # Compute the short range density
+        density_1 = self._compute_density(
             frames,
             calculator=self._spherical_expansion,
             selected_keys=None,
             mask_system=mask_system,
         )
 
-        return density_sr
+        # Compute the long range density (LODE)
+        density_2 = self._compute_density(
+            frames,
+            calculator=self._lode_spherical_expansion,
+            selected_keys=None,
+            mask_system=mask_system,
+        )
+
+        # Rename properties
+        density_1 = mts.rename_dimension(density_1, "properties", "n", "n_1")
+        density_1 = mts.rename_dimension(
+            density_1, "properties", "neighbor_type", "neighbor_1_type"
+        )
+
+        density_2 = mts.rename_dimension(density_2, "properties", "n", "n_2")
+        density_2 = mts.rename_dimension(
+            density_2, "properties", "neighbor_type", "neighbor_2_type"
+        )
+
+        # Take the CG product
+        rho2 = self._cg_product.compute(
+            density_1,
+            density_2,
+            o3_lambda_1_new_name="l_1",
+            o3_lambda_2_new_name="l_2",
+            selected_keys=selected_keys,
+        )
+        rho2 = rho2.keys_to_properties(["l_1", "l_2"])
+
+        # Do PCA contraction
+        if self._epca is not None:
+            if not self._epca._is_fitted:
+                self._epca.fit(rho2)
+
+            rho2 = self._epca.transform(rho2)
+
+        return rho2
+
+    def _V_x_V(
+        self,
+        frames: List[Frame],
+        selected_keys: Optional[mts.Labels] = None,
+        mask_system: bool = None,
+    ) -> mts.TensorMap:
+        """
+        Computes an equivariant power spectrum descriptor.
+        """
+        # Compute the short range density
+        density_1 = self._compute_density(
+            frames,
+            calculator=self._lode_spherical_expansion_1,
+            selected_keys=None,
+            mask_system=mask_system,
+        )
+
+        # Compute the long range density (LODE)
+        density_2 = self._compute_density(
+            frames,
+            calculator=self._lode_spherical_expansion_2,
+            selected_keys=None,
+            mask_system=mask_system,
+        )
+
+        # Rename properties
+        density_1 = mts.rename_dimension(density_1, "properties", "n", "n_1")
+        density_1 = mts.rename_dimension(
+            density_1, "properties", "neighbor_type", "neighbor_1_type"
+        )
+
+        density_2 = mts.rename_dimension(density_2, "properties", "n", "n_2")
+        density_2 = mts.rename_dimension(
+            density_2, "properties", "neighbor_type", "neighbor_2_type"
+        )
+
+        # Take the CG product
+        rho2 = self._cg_product.compute(
+            density_1,
+            density_2,
+            o3_lambda_1_new_name="l_1",
+            o3_lambda_2_new_name="l_2",
+            selected_keys=selected_keys,
+        )
+        rho2 = rho2.keys_to_properties(["l_1", "l_2"])
+
+        # Do PCA contraction
+        if self._epca is not None:
+            if not self._epca._is_fitted:
+                self._epca.fit(rho2)
+
+            rho2 = self._epca.transform(rho2)
+
+        return rho2
 
     def _rho2(
         self,

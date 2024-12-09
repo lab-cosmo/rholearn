@@ -11,7 +11,7 @@ from typing import Callable, List, NamedTuple, Optional, Tuple, Union
 import metatensor.torch as mts
 import numpy as np
 import torch
-from chemfiles import Atom, Frame
+from chemfiles import Atom, Frame, UnitCell
 from metatensor.torch.learn.data import DataLoader, IndexedDataset
 from metatensor.torch.learn.data._namedtuple import namedtuple
 
@@ -261,6 +261,7 @@ def center_types_to_descriptor_basis_in_properties(
             ),
             position=[0, 0, 0],
         )
+        dummy_frame.cell = UnitCell([100, 100, 100])
         dummy_frames.append(dummy_frame)
     descriptor = descriptor_calculator(
         frames=dummy_frames,

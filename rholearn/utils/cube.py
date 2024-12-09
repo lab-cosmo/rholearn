@@ -20,10 +20,23 @@ from scipy.interpolate import CubicSpline
 
 class RhoCube(cube_tools.cube):
 
-    def __init__(self, file_path: str):
+    def __init__(
+        self,
+        file_path: str,
+        expect_lengths_in_bohr: Optional[bool] = True,
+    ) -> None:
         super(RhoCube, self).__init__(file_path)
         self.file_path = file_path
         self.frame = self.frame()
+
+        # Expects that the cube lengths and origin are given in atomic units (i.e.
+        # Bohr). Convert to SI units (i.e. Angstrom)
+        if expect_lengths_in_bohr:
+            bohr_to_ang = 0.529177249
+            self.X *= bohr_to_ang
+            self.Y *= bohr_to_ang
+            self.Z *= bohr_to_ang
+            self.origin *= bohr_to_ang
 
     def frame(self) -> Frame:
         """
@@ -201,7 +214,8 @@ def plot_contour_ccm(
         sharex=True,
     )
 
-    for q, ax in zip(cubes, axes):
+    X, Y, Z = [], [], []
+    for q in cubes:
         x, y, z = q.get_height_profile_map(
             isovalue=isovalue,
             tolerance=tolerance,
@@ -210,10 +224,26 @@ def plot_contour_ccm(
             z_max=z_max,
             xy_tiling=xy_tiling,
         )
+        X.append(x)
+        Y.append(y)
+        Z.append(z)
+
+    # Set the min and max contour values for consistent scale bar
+    _Z = np.array(Z).flatten()
+    _Z = _Z[~np.isnan(_Z)]
+    if z_min is None:
+        z_min = np.min(_Z)
+    if z_max is None:
+        z_max = np.max(_Z)
+
+    # Plot the contour maps
+    for x, y, z, ax in zip(X, Y, Z, axes):
         cs = ax.contourf(
             x,
             y,
             z,
+            vmin=z_min,
+            vmax=z_max,
             cmap=cmap,
             levels=levels,
         )
@@ -221,6 +251,7 @@ def plot_contour_ccm(
         ax.set_aspect("equal")
         ax.set_xlabel("x / Ang")
         ax.set_ylabel("y / Ang")
+        ax.set_facecolor("black")
 
     if save_dir is not None:
         plt.savefig(join(save_dir, "cube_scatter_ccm.png"))
@@ -268,6 +299,7 @@ def plot_contour_chm(
         ax.set_aspect("equal")
         ax.set_xlabel("x / Ang")
         ax.set_ylabel("y / Ang")
+        ax.set_facecolor("black")
 
     if save_dir is not None:
         plt.savefig(join(save_dir, "cube_scatter_chm.png"))

@@ -209,24 +209,27 @@ def train():
     io.log(log_path, "Build training dataset")
     io.log(log_path, f"    Training system ID: {all_subset_id[0]}")
     with torch.no_grad():
-        if ml_options["DESCRIPTOR_HYPERS"]["use_pca"] is True:
-            # Check fitting of each PCA module
-            for attr in descriptor_calculator.__dir__():
-                if attr.startswith("_epca"):
-                    if (
-                        ml_options["TRAIN"]["restart_epoch"] is None
-                        and ml_options["LOAD_MODEL"] is None
-                    ):
-                        # If the model is newly initialized (i.e. not loaded) and PCA is
-                        # to be used, ensure they are currently not fitted
-                        assert (
-                            getattr(descriptor_calculator, attr)._is_fitted is False
-                        ), "PCAs should not already be fitted"
-                    else:
-                        # The PCA should already be fitted
-                        assert (
-                            getattr(descriptor_calculator, attr)._is_fitted is False
-                        ), "PCAs should not already be fitted"
+        # if ml_options["DESCRIPTOR_HYPERS"]["use_pca"] is True:
+        # Check fitting of each PCA module
+        for attr in descriptor_calculator.__dir__():
+            if attr.startswith("_epca"):
+                _epca_attr = getattr(descriptor_calculator, attr)
+                if _epca_attr is None:
+                    continue
+                if (
+                    ml_options["TRAIN"]["restart_epoch"] is None
+                    and ml_options["LOAD_MODEL"] is None
+                ):
+                    # If the model is newly initialized (i.e. not loaded) and PCA is
+                    # to be used, ensure they are currently not fitted
+                    assert _epca_attr._is_fitted is False, (
+                        "PCAs should not already be fitted"
+                    )
+                else:
+                    # The PCA should already be fitted
+                    assert _epca_attr._is_fitted is True, (
+                        "PCAs should not already be fitted"
+                    )
 
         # Build training dataset
         train_dataset = train_utils.get_dataset(
@@ -246,15 +249,18 @@ def train():
         if (
             ml_options["TRAIN"]["restart_epoch"] is None
             and ml_options["LOAD_MODEL"] is None
-            and ml_options["DESCRIPTOR_HYPERS"]["use_pca"] is True
+            # and ml_options["DESCRIPTOR_HYPERS"]["use_pca"] is True
         ):
             # If newly initializing a model and using PCAs, check that they are now
             # fitted.
             for attr in descriptor_calculator.__dir__():
                 if attr.startswith("_epca"):
-                    assert (
-                        getattr(descriptor_calculator, attr)._is_fitted is True
-                    ), "PCAs should now be fitted"
+                    _epca_attr = getattr(descriptor_calculator, attr)
+                    if _epca_attr is None:
+                        continue
+                    assert _epca_attr._is_fitted is True, (
+                        "PCAs should now be fitted"
+                    )
 
     # Dataset - val
     io.log(log_path, "Build validation dataset")
@@ -520,6 +526,7 @@ def train():
 
     if len(epochs) == 0:
         io.log(log_path, "No gradient descent to run - training finished.")
+        return
 
     # ===== Training loop =====
 
@@ -619,7 +626,7 @@ def train():
             io.log(log_path, log_msg)
             # Log parameter gradient norms if applicable
             if ml_options["TRAIN"]["log_grad_norms"] is not None:
-                if epoch % ml_options["TRAIN"]["log_grad_norms"] == 0 or epoch == 0:
+                if epoch % ml_options["TRAIN"]["log_grad_norms"] == 0 or epoch == 1:
                     io.log(log_path, "Gradient norms:")
                     grad_norms = model._get_grad_norms()
                     for map_name, vals in grad_norms.items():

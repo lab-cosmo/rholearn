@@ -13,7 +13,7 @@ from chemfiles import Frame
 from rholearn.aims_interface import hpc, io, orbitals, parser
 from rholearn.options import get_options
 from rholearn.rholearn import mask
-from rholearn.utils import system
+from rholearn.utils import cube, system
 from rholearn.utils.io import unpickle_dict
 
 
@@ -184,12 +184,16 @@ def process_ri_fit_for_frame(frame_idx: int) -> None:
     """
 
     dft_options, hpc_options = _get_options()
+    if dft_options["PROCESS_RI"].get("sparsity_threshold") is None:
+        sparsity_threshold = None
+    else:
+        sparsity_threshold = float(dft_options["PROCESS_RI"].get("sparsity_threshold"))
     parser.process_ri_outputs(
         aims_output_dir=dft_options["RI_DIR"](frame_idx),
         structure_idx=frame_idx,
         ovlp_cond_num=dft_options["PROCESS_RI"]["overlap_cond_num"],
         cutoff_ovlp=dft_options["PROCESS_RI"]["cutoff_overlap"],
-        ovlp_sparsity_threshold=float(dft_options["PROCESS_RI"]["sparsity_threshold"]),
+        ovlp_sparsity_threshold=sparsity_threshold,
         save_dir=dft_options["PROCESSED_DIR"](frame_idx),
     )
     parser.process_df_error(
@@ -197,6 +201,31 @@ def process_ri_fit_for_frame(frame_idx: int) -> None:
         save_dir=dft_options["PROCESSED_DIR"](frame_idx),
         **dft_options["MASK"],
     )
+
+    # Plot STM images, if applicable
+    if dft_options["STM"].get("mode") is not None:
+        q_scf = cube.RhoCube(
+            join(dft_options["RI_DIR"](frame_idx), "cube_001_total_density.cube")
+        )
+        q_ri = cube.RhoCube(
+            join(dft_options["RI_DIR"](frame_idx), "cube_002_ri_density.cube")
+        )
+
+        # Plot the STM scatter
+        if dft_options["STM"].get("mode") == "ccm":
+            fig, ax = cube.plot_contour_ccm(
+                cubes=[q_scf, q_ri],
+                save_dir=dft_options["PROCESSED_DIR"](frame_idx),
+                **dft_options["STM"]["options"],
+            )
+
+        else:
+            assert dft_options["STM"].get("mode") == "chm"
+            fig, ax = cube.plot_contour_chm(
+                cubes=[q_scf, q_ri],
+                save_dir=dft_options["PROCESSED_DIR"](frame_idx),
+                **dft_options["STM"]["options"],
+            )
 
 
 def _write_eigenstate_occs_to_file(

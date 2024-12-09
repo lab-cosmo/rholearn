@@ -538,7 +538,7 @@ def extract_input_file_from_control(
 
 
 def load_ovlp_matrix_to_square_matrix_numpy(
-    aims_output_dir: str, fname: Optional[str] = "ri_ovlp.out"
+    aims_output_dir: str
 ) -> np.ndarray:
     """
     Loads the overlap matrix from the file "ri_ovlp.out" (alternatively ``fname``) in
@@ -551,10 +551,17 @@ def load_ovlp_matrix_to_square_matrix_numpy(
     # Read the overlap and ensure a correct dimension. Currently it is a flat vector
     # representing the triangular matrix, of length ((n^2 + n) / 2), where `n` is the
     # length of the corresponding coefficient vector.
-    ovlp_numpy = np.loadtxt(join(aims_output_dir, fname))
-    coeffs_numpy = np.loadtxt(join(aims_output_dir, "ri_restart_coeffs.out"))
+    # Load to numpy
+    if exists(join(aims_output_dir, "ri_ovlp.out")):
+        ovlp_numpy = np.loadtxt(join(aims_output_dir, "ri_ovlp.out"))
+        # Save to numpy to compress, then remove the original text file
+        np.save(join(aims_output_dir, "ri_ovlp.npy"), ovlp_numpy)
+        os.remove(join(aims_output_dir, "ri_ovlp.out"))
+    else:
+        ovlp_numpy = np.load(join(aims_output_dir, "ri_ovlp.npy"))
+    coeffs_numpy = np.load(join(aims_output_dir, "ri_restart_coeffs.npy"))
     ovlp_dim = int(coeffs_numpy.shape[0])
-    assert len(ovlp_numpy) == ((ovlp_dim**2) + ovlp_dim) / 2
+    assert len(ovlp_numpy) == ((ovlp_dim ** 2) + ovlp_dim) / 2
 
     # Convert to full square matrix and check symmetric
     s_full = np.empty((ovlp_dim, ovlp_dim))
@@ -593,11 +600,13 @@ def process_ri_outputs(
     # ===== RI coefficients
 
     # Load to numpy
-    coeffs_numpy = np.loadtxt(join(aims_output_dir, "ri_restart_coeffs.out"))
-
-    # Save to numpy to compress, then remove the original text file
-    np.save(join(aims_output_dir, "ri_restart_coeffs.npy"), coeffs_numpy)
-    os.remove(join(aims_output_dir, "ri_restart_coeffs.out"))
+    if exists(join(aims_output_dir, "ri_restart_coeffs.out")):
+        coeffs_numpy = np.loadtxt(join(aims_output_dir, "ri_restart_coeffs.out"))
+        # Save to numpy to compress, then remove the original text file
+        np.save(join(aims_output_dir, "ri_restart_coeffs.npy"), coeffs_numpy)
+        os.remove(join(aims_output_dir, "ri_restart_coeffs.out"))
+    else:
+        coeffs_numpy = np.load(join(aims_output_dir, "ri_restart_coeffs.npy"))
 
     # Standard block sparse format
     coeffs_mts = convert.coeff_vector_ndarray_to_tensormap(
@@ -613,11 +622,13 @@ def process_ri_outputs(
     # ===== RI projections
 
     # Load to numpy
-    projs_numpy = np.loadtxt(join(aims_output_dir, "ri_projections.out"))
-
-    # Save to numpy to compress, then remove the original text file
-    np.save(join(aims_output_dir, "ri_projections.npy"), projs_numpy)
-    os.remove(join(aims_output_dir, "ri_projections.out"))
+    if exists(join(aims_output_dir, "ri_projections.out")):
+        projs_numpy = np.loadtxt(join(aims_output_dir, "ri_projections.out"))
+        # Save to numpy to compress, then remove the original text file
+        np.save(join(aims_output_dir, "ri_projections.npy"), projs_numpy)
+        os.remove(join(aims_output_dir, "ri_projections.out"))
+    else:
+        projs_numpy = np.load(join(aims_output_dir, "ri_projections.npy"))
 
     # Standard block sparse format
     projs_mts = convert.coeff_vector_ndarray_to_tensormap(
@@ -633,11 +644,7 @@ def process_ri_outputs(
     # ===== RI overlap
 
     # Load the overlap matrix to a full square matrix
-    ovlp_numpy = load_ovlp_matrix_to_square_matrix_numpy(aims_output_dir, "ri_ovlp.out")
-
-    # Save to numpy to compress, then remove the original text file
-    np.save(join(aims_output_dir, "ri_ovlp.npy"), ovlp_numpy)
-    os.remove(join(aims_output_dir, "ri_ovlp.out"))
+    ovlp_numpy = load_ovlp_matrix_to_square_matrix_numpy(aims_output_dir)
 
     # Convert to TensorMap and save
     ovlp = convert.overlap_matrix_ndarray_to_tensormap(
@@ -704,24 +711,30 @@ def process_ri_outputs(
     # ===== Scalar fields =====
 
     # Load the scalar field data
-    partition_tab = np.loadtxt(join(aims_output_dir, "partition_tab.out"))
-    rho_scf = np.loadtxt(join(aims_output_dir, "rho_scf.out"))
-    rho_rebuilt_ri = np.loadtxt(join(aims_output_dir, "rho_rebuilt_ri.out"))
+    if (
+        exists(join(aims_output_dir, "partition_tab.out"))
+        and exists(join(aims_output_dir, "rho_scf.out"))
+        and exists(join(aims_output_dir, "rho_rebuilt_ri.out"))
+        
+    ):
+        partition_tab = np.loadtxt(join(aims_output_dir, "partition_tab.out"))
+        rho_scf = np.loadtxt(join(aims_output_dir, "rho_scf.out"))
+        rho_rebuilt_ri = np.loadtxt(join(aims_output_dir, "rho_rebuilt_ri.out"))
 
-    # Check grid consistency
-    assert np.all(partition_tab[:, :3] == rho_scf[:, :3])
-    assert np.all(partition_tab[:, :3] == rho_rebuilt_ri[:, :3])
-    assert np.all(rho_scf[:, :3] == rho_rebuilt_ri[:, :3])
+        # Check grid consistency
+        assert np.all(partition_tab[:, :3] == rho_scf[:, :3])
+        assert np.all(partition_tab[:, :3] == rho_rebuilt_ri[:, :3])
+        assert np.all(rho_scf[:, :3] == rho_rebuilt_ri[:, :3])
 
-    # Compress with numpy. For the densities, just store the field values
-    np.save(join(aims_output_dir, "partition_tab.npy"), partition_tab)
-    np.save(join(aims_output_dir, "rho_scf.npy"), rho_scf[:, 3])
-    np.save(join(aims_output_dir, "rho_rebuilt_ri.npy"), rho_rebuilt_ri[:, :3])
+        # Compress with numpy. For the densities, just store the field values
+        np.save(join(aims_output_dir, "partition_tab.npy"), partition_tab)
+        np.save(join(aims_output_dir, "rho_scf.npy"), rho_scf[:, 3])
+        np.save(join(aims_output_dir, "rho_rebuilt_ri.npy"), rho_rebuilt_ri[:, 3])
 
-    # Remove original text files
-    os.remove(join(aims_output_dir, "partition_tab.out"))
-    os.remove(join(aims_output_dir, "rho_scf.out"))
-    os.remove(join(aims_output_dir, "rho_rebuilt_ri.out"))
+        # Remove original text files
+        os.remove(join(aims_output_dir, "partition_tab.out"))
+        os.remove(join(aims_output_dir, "rho_scf.out"))
+        os.remove(join(aims_output_dir, "rho_rebuilt_ri.out"))
 
     return
 

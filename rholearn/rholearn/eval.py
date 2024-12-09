@@ -181,54 +181,41 @@ def eval():
         nmaes = {t: [] for t in target_types}
         for A in test_id:
             # Load grid and predicted field
-            grid = np.loadtxt(join(dft_options["RI_DIR"](A), "partition_tab.out"))
+            grid = np.load(join(dft_options["RI_DIR"](A), "partition_tab.npy"))
             rho_ml = np.loadtxt(join(rebuild_dir(A), "rho_rebuilt_ri.out"))
+
+            # Check grid in ML dir is consistent
+            _tmp_grid = np.loadtxt(join(rebuild_dir(A), "partition_tab.out"))
+            assert np.all(grid == _tmp_grid)
+            assert np.all(grid[:, :3] == rho_ml[:, :3])
+            rho_ml = rho_ml[:, 3]
 
             # Build a coordinate mask, if applicable
             if model._descriptor_calculator._masked_system_type is not None:
-                rho_ml = rho_ml[
-                    mask.get_point_indices_by_region(
-                        points=rho_ml[:, :3],
-                        masked_system_type=(
-                            model._descriptor_calculator._masked_system_type
-                        ),
-                        region="active",
-                        **model._descriptor_calculator._mask_kwargs,
-                    )
-                ]
-                grid = grid[
-                    mask.get_point_indices_by_region(
-                        points=grid[:, :3],
-                        masked_system_type=(
-                            model._descriptor_calculator._masked_system_type
-                        ),
-                        region="active",
-                        **model._descriptor_calculator._mask_kwargs,
-                    )
-                ]
+                grid_mask = mask.get_point_indices_by_region(
+                    points=grid[:, :3],
+                    masked_system_type=(
+                        model._descriptor_calculator._masked_system_type
+                    ),
+                    region="active",
+                    **model._descriptor_calculator._mask_kwargs,
+                )
+                rho_ml = rho_ml[grid_mask]
+                grid = grid[grid_mask]
 
             # Load each reference field - either SCF or RI
             for target_type in target_types:
                 if target_type == "scf":
-                    rho_ref = np.loadtxt(join(dft_options["RI_DIR"](A), "rho_scf.out"))
+                    rho_ref = np.load(join(dft_options["RI_DIR"](A), "rho_scf.npy"))
                 else:
                     assert target_type == "ri"
-                    rho_ref = np.loadtxt(
-                        join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.out")
+                    rho_ref = np.load(
+                        join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.npy")
                     )
 
                 # Build a coordinate mask, if applicable
                 if model._descriptor_calculator._masked_system_type is not None:
-                    rho_ref = rho_ref[
-                        mask.get_point_indices_by_region(
-                            points=rho_ref[:, :3],
-                            masked_system_type=(
-                                model._descriptor_calculator._masked_system_type
-                            ),
-                            region="active",
-                            **model._descriptor_calculator._mask_kwargs,
-                        )
-                    ]
+                    rho_ref = rho_ref[grid_mask]
 
                 # Get the MAE and normalization
                 abs_error, norm = fields.field_absolute_error(
@@ -270,7 +257,7 @@ def eval():
             )
 
     # ===== Generate STM images =====
-    if ml_options["EVAL"]["stm"].get("mode") is not None:
+    if ml_options["EVAL"]["generate_stm"] is True:
 
         t0_stm = time.time()
         io.log(log_path, "Generating STM images")
@@ -287,21 +274,21 @@ def eval():
             q_ml = cube.RhoCube(join(rebuild_dir(A), "cube_001_ri_density.cube"))
 
             # Plot the STM scatter
-            if ml_options["EVAL"]["stm"]["mode"] == "ccm":
+            if dft_options["STM"]["mode"] == "ccm":
 
                 fig, ax = cube.plot_contour_ccm(
                     cubes=[q_scf, q_ri, q_ml],
                     save_dir=rebuild_dir(A),
-                    **ml_options["EVAL"]["stm"]["options"],
+                    **dft_options["STM"]["options"],
                 )
 
             else:
 
-                assert ml_options["EVAL"]["stm"]["mode"] == "chm"
+                assert dft_options["STM"]["mode"] == "chm"
                 fig, ax = cube.plot_contour_chm(
                     cubes=[q_scf, q_ri, q_ml],
                     save_dir=rebuild_dir(A),
-                    **ml_options["EVAL"]["stm"]["options"],
+                    **dft_options["STM"]["options"],
                 )
             matplotlib.pyplot.close()
 
