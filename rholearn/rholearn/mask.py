@@ -531,6 +531,10 @@ def _drop_empty_blocks(
     """
     Drops blocks from a TensorMap that have been sliced to zero samples.
     """
+    # Return None if None
+    if tensor is None:
+        return tensor
+
     # Assign backend
     if backend == "numpy":
         mts = metatensor

@@ -2,8 +2,7 @@
 # initialize model parameters
 SEED: 42
 
-
-# Rascaline SphericalExpansion hyperparameters
+# featomic SphericalExpansion hyperparameters
 DESCRIPTOR_HYPERS:
   descriptor_type: null
   angular_cutoff: null

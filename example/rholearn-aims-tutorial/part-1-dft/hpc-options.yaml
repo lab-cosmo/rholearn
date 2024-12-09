@@ -4,14 +4,14 @@ SLURM_PARAMS:
     nodes: 1
     time: "00:15:00"
     mem-per-cpu: 0
-    partition: "jobs"
+    partition: "standard"
     ntasks-per-node: 18
 
 # Modules to load in the HPC submission script, i.e. "module load X"
 LOAD_MODULES:  
     - "intel"
-    - "intel-mpi"
-    - "intel-mkl"
+    - "intel-oneapi-mpi"
+    - "intel-oneapi-mkl"
 
 # Environment variables to export in the HPC submission script, i.e. "export X"
 EXPORT_VARIABLES: 

@@ -584,7 +584,7 @@ def train():
             model=model,
             loss_fn=train_loss_fn,
             optimizer=optimizer,
-            check_metadata=epoch == 0,
+            check_metadata=epoch == 1,
         )
         dt_train = time.time() - t0_train
 
@@ -601,7 +601,7 @@ def train():
                     model=model,
                     loss_fn=val_loss_fn,
                     optimizer=None,
-                    check_metadata=epoch == 0,
+                    check_metadata=epoch == 1,
                 )
             dt_val = time.time() - t0_val
 

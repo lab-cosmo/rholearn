@@ -6,6 +6,24 @@ N_TEST: 8
 # Other user settings here:
 # ...
 
+DESCRIPTOR_HYPERS:
+  descriptor_type: rho2
+  spherical_expansion_hypers:
+    cutoff:
+      radius: 3.0
+      smoothing:
+        type: ShiftedCosine
+        width: 0.1
+    density:
+      type: Gaussian
+      width: 0.2
+    basis:
+      type: TensorProduct
+      max_angular: 4
+      radial:
+        type: Gto
+        max_radial: 7
+
 # For training the model
 TRAIN:
   batch_size: 2
@@ -15,3 +33,6 @@ TRAIN:
   log_interval: 50  # epoch interval at which to log metrics
   checkpoint_interval: 100  # save model and optimizer state every x intervals
 
+# For model evaluation
+EVAL:
+  subset_size: 5  # only perform model evaluation on 5 structures

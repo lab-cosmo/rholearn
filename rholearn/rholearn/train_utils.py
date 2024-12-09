@@ -653,9 +653,9 @@ def epoch_step(
             )
             input_c = convert.coeff_vector_to_sparse_by_center_type(input_c, "torch")
             batch_loss = loss_fn(  # compute loss
-                input_c=input_c,
-                target_c=batch.target_c,
-                target_w=batch.target_w,
+                input_c=mask._drop_empty_blocks(input_c, "torch"),
+                target_c=mask._drop_empty_blocks(batch.target_c, "torch"),
+                target_w=mask._drop_empty_blocks(batch.target_w, "torch"),
                 overlap=batch.overlap,
                 check_metadata=check_metadata,
             )
@@ -680,9 +680,9 @@ def epoch_step(
                         input_c, "torch"
                     )
                     batch_loss = loss_fn(  # compute loss
-                        input_c=input_c,
-                        target_c=batch.target_c,  # noqa: B023
-                        target_w=batch.target_w,  # noqa: B023
+                        input_c=mask._drop_empty_blocks(input_c, "torch"),
+                        target_c=mask._drop_empty_blocks(batch.target_c, "torch"),  # noqa: B023
+                        target_w=mask._drop_empty_blocks(batch.target_w, "torch"),  # noqa: B023
                         overlap=batch.overlap,  # noqa: B023
                         check_metadata=check_metadata,
                     )
@@ -707,9 +707,9 @@ def epoch_step(
                     input_c, "torch"
                 )
                 batch_loss = loss_fn(  # compute loss
-                    input_c=input_c,
-                    target_c=batch.target_c,
-                    target_w=batch.target_w,
+                    input_c=mask._drop_empty_blocks(input_c, "torch"),
+                    target_c=mask._drop_empty_blocks(batch.target_c, "torch"),
+                    target_w=mask._drop_empty_blocks(batch.target_w, "torch"),
                     overlap=batch.overlap,
                     check_metadata=check_metadata,
                 )

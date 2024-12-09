@@ -84,7 +84,8 @@ def eval():
         f"Load model from checkpoint at epoch {ml_options['EVAL']['eval_epoch']}",
     )
     model = torch.load(
-        join(ml_options["CHKPT_DIR"](ml_options["EVAL"]["eval_epoch"]), "model.pt")
+        join(ml_options["CHKPT_DIR"](ml_options["EVAL"]["eval_epoch"]), "model.pt"),
+        weights_only=False,
     )
 
     # Check that evaluation hasn't already happened
