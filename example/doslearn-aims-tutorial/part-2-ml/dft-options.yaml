@@ -1,0 +1,22 @@
+# Absolute path to the top directory where FHI-aims output data will be stored
+DATA_DIR: ../part-1-dft/data
+
+# Absolute path to .xyz file containing the whole dataset
+XYZ: ../part-1-dft/data/si_diamond_10.xyz
+
+# The FHI-aims run command, including absolute path to aims executable
+AIMS_COMMAND: "srun /path/to/aims.x < control.in > aims.out"
+
+# Absolute path to species defaults directory
+SPECIES_DEFAULTS: ../part-1-dft/species_defaults/light/default
+
+# Physical settings
+BASE_AIMS:
+  k_grid_density: 0.01  # k-point density in 1/Angstrom
+
+# Define DOS parameters
+DOS_SPLINES:
+  min_energy: -20.0  # eV
+  max_energy: 13.0  # eV
+  interval: 0.05  # eV
+  sigma: 0.3  # eV
