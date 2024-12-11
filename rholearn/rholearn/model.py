@@ -8,7 +8,7 @@ import metatensor.torch as mts
 import torch
 from chemfiles import Atom, Frame
 from featomic.torch import SphericalExpansion
-from featomic.torch.utils import DensityCorrelations
+from featomic.torch.clebsch_gordan import DensityCorrelations
 from metatensor.torch.learn import nn
 
 from rholearn.rholearn import mask, train_utils
