@@ -44,17 +44,17 @@ Machine learning has also been applied to the DOS and a variety of representatin
 
 # Goals
 
-`rholearn` also operates under the density fitting approach. The nuclear coordinates $\to$ electonic density mapping is learned *via* a feature-based equivariant neural network whose outputs are the predicted coefficients. Currently, `rholearn` is integrated with the electronic structure code `FHI-aims` for both data generation and building of real-space fields from predicted coefficients.
+`rholearn` also operates under the density fitting approach. The nuclear coordinates $\to$ electonic density mapping is learned *via* a feature-based equivariant neural network whose outputs are the predicted coefficients. Currently, `rholearn` is integrated with the electronic structure code `FHI-aims` for both data generation and building of real-space fields from predicted coefficients. `rholearn` aims to improve the scalability of the density-fitting approach to learning electronic densities. 
 
-`doslearn` represents the DOS by projecting it on a discretized energy grid. Additionally, a locality ansatz is employed whereby the global DOS of a structure, is expressed as a sum of local contributions from each atomic environment. 
+`doslearn` represents the DOS by projecting it on a discretized energy grid. Additionally, a locality ansatz is employed whereby the global DOS of a structure, is expressed as a sum of local contributions from each atomic environment.
 
-`rholearn` aims to improve the scalability of the density-fitting approach to learning electronic densities. It is built on top of a modular software ecosystem, with the following packages forming the main components of the workflow:
+Both are built on top of a modular software ecosystem, with the following packages forming the main components of the workflow:
 
 * **`metatensor`** ([GitHub](https://github.com/lab-cosmo/metatensor)) is used as the self-describing block-sparse data storage format, wrapping multidimensional tensors with metadata. Subpackages `metatensor-operations` and `metatensor-learn` are used to provide convenient sparse operations and ML building blocks respectively that operate on the `metatensor.TensorMap` object.
-* **`rascaline`** ([GitHub](https://github.com/luthaf/rascaline)) is used to transform the nuclear coordinates into local equivariant descriptors that encode physical symmetries and geometric information for input into the neural network.
+* **`featomic`** ([GitHub](https://github.com/metatensor/featomic)) is used to transform the nuclear coordinates into local equivariant descriptors that encode physical symmetries and geometric information for input into the neural network.
 * **`PyTorch`** is used as the learning framework, allowing definition of arbitrarily complex neural networks that can be trained by minibatch gradient descent.
 
-Leveraging the speed- and memory-efficient operations of `torch`, and using building on top of `metatensor` and `rascaline`, descriptors, models, and learning methodologies can be flexibly prototyped and customized for a specific learning task.
+Leveraging the speed- and memory-efficient operations of `torch`, and using building on top of `metatensor` and `featomic`, descriptors, models, and learning methodologies can be flexibly prototyped and customized for a specific learning task.
 
 
 # Getting Started
