@@ -270,5 +270,5 @@ def opt_mse_spline(
     shifted_target = evaluate_spline(
         target_splines, spline_positions, x_dos + optimal_shift.view(-1, 1)
     )
-    rmse = t_get_mse(predicted_dos, shifted_target, x_dos)
-    return rmse, optimal_shift
+    mse = t_get_mse(predicted_dos, shifted_target, x_dos)
+    return mse, shifted_target, optimal_shift
