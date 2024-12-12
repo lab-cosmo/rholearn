@@ -71,7 +71,7 @@ def train():
                     atom_types.update({type_})
             atom_types = list(atom_types)
 
-            # Init model
+            # Initialize model
             model = SoapDosNet(
                 ml_options["SPHERICAL_EXPANSION_HYPERS"],
                 atom_types=atom_types,
@@ -102,10 +102,10 @@ def train():
         else:
             assert ml_options["TARGET_DOS"]["reference"] == "Hartree"
             energy_reference = [0.0] * len(frame_idxs)
-
+        energy_reference = torch.tensor(energy_reference)
         # Define the learnable alignment that is used for the adaptive energy reference
         alignment = torch.nn.Parameter(
-            torch.tensor(
+            torch.zeros_like(
                 energy_reference,
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=ml_options["TRAIN"]["device"],
@@ -288,9 +288,12 @@ def train():
             prediction = mts.mean_over_samples(prediction, "atom")
             prediction = prediction[0].values
 
-            # Align the targets. Enforce that alignment has a mean of 0 to eliminate
+            # Align the targets with respect to the original energy reference.
+            # Enforce that alignment has a mean of 0 to eliminate
             # systematic shifts across the entire dataset
-            normalized_alignment = alignment - torch.mean(alignment)
+            normalized_alignment = energy_reference + (
+                alignment - torch.mean(alignment)
+            )
             target = train_utils.evaluate_spline(
                 batch.splines[0].values,
                 spline_positions,
@@ -319,7 +322,7 @@ def train():
                 val_predictions.append(prediction)
                 val_splines.append(batch.splines[0].values)
 
-            val_loss, _ = train_utils.opt_mse_spline(
+            val_loss, _, _ = train_utils.opt_mse_spline(
                 torch.vstack(val_predictions),
                 model._x_dos,
                 torch.vstack(val_splines),
