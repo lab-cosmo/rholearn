@@ -2,15 +2,15 @@ import os
 import time
 from os.path import join
 
-import torch
+import metatensor.torch as mts
 import numpy as np
+import torch
 
+from rholearn.doslearn import train_utils
 from rholearn.options import get_options
 from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.utils import io, system
-from rholearn.doslearn import train_utils
 
-import metatensor.torch as mts
 
 def eval():
     """
@@ -72,7 +72,9 @@ def eval():
     dtype = getattr(torch, ml_options["TRAIN"]["dtype"])
     device = torch.device(ml_options["TRAIN"]["device"])
     test_splines_mts = [
-        mts.load(join(dft_options["PROCESSED_DIR"](A), "dos_spline.npz")).to(dtype=dtype, device=device)
+        mts.load(join(dft_options["PROCESSED_DIR"](A), "dos_spline.npz")).to(
+            dtype=dtype, device=device
+        )
         for A in test_id
     ]
     test_splines = torch.vstack([i.blocks(0)[0].values for i in test_splines_mts])
@@ -98,7 +100,9 @@ def eval():
     test_preds_numpy = test_preds.detach().numpy()
     for index_A, A in enumerate(test_id):
         os.makedirs(rebuild_dir(A), exist_ok=True)
-        np.save(join(rebuild_dir(A), "prediction.npy"), test_preds_numpy[index_A]) # Save in each directory
+        np.save(
+            join(rebuild_dir(A), "prediction.npy"), test_preds_numpy[index_A]
+        )  # Save in each directory
     io.log(log_path, rho_train_utils.report_dt(dt_infer, "Model inference complete"))
     io.log(
         log_path, rho_train_utils.report_dt(dt_infer / len(test_id), "   or per frame")
@@ -110,27 +114,34 @@ def eval():
     test_preds_eval = test_preds_eval[0].values
     # Obtain shift invariant MSE
     test_MSE, shited_test_targets, test_shifts = train_utils.opt_mse_spline(
-                test_preds_eval,
-                model._x_dos,
-                test_splines,
-                spline_positions,
-                n_epochs=200,
-            )
-    errors = (test_preds_eval - shited_test_targets)**2
-    samplewise_error = torch.trapezoid(errors, model._x_dos, dim= 1).detach().numpy()
-    energywise_error = torch.mean(errors, dim = 0).detach().numpy()
-    os.makedirs(rebuild_dir('Test'), exist_ok=True)
-    np.save(join(rebuild_dir('Test'), "test_MSEs.npy"), samplewise_error)
-    np.save(join(rebuild_dir('Test'), "test_eMSEs.npy"), energywise_error)
+        test_preds_eval,
+        model._x_dos,
+        test_splines,
+        spline_positions,
+        n_epochs=200,
+    )
+    errors = (test_preds_eval - shited_test_targets) ** 2
+    samplewise_error = torch.trapezoid(errors, model._x_dos, dim=1).detach().numpy()
+    energywise_error = torch.mean(errors, dim=0).detach().numpy()
+    os.makedirs(rebuild_dir("Test"), exist_ok=True)
+    np.save(join(rebuild_dir("Test"), "test_MSEs.npy"), samplewise_error)
+    np.save(join(rebuild_dir("Test"), "test_eMSEs.npy"), energywise_error)
     # Save Predictions and targets in each folder
     for index_A, A in enumerate(test_id):
-        np.save(join(rebuild_dir(A), "normalized_prediction.npy"), test_preds_eval[index_A].detach().numpy())
-        np.save(join(rebuild_dir(A), "aligned_target.npy"), shited_test_targets[index_A].detach().numpy())
-        np.save(join(rebuild_dir(A), "target_shift.npy"), test_shifts[index_A].detach().numpy())
+        np.save(
+            join(rebuild_dir(A), "normalized_prediction.npy"),
+            test_preds_eval[index_A].detach().numpy(),
+        )
+        np.save(
+            join(rebuild_dir(A), "aligned_target.npy"),
+            shited_test_targets[index_A].detach().numpy(),
+        )
+        np.save(
+            join(rebuild_dir(A), "target_shift.npy"),
+            test_shifts[index_A].detach().numpy(),
+        )
 
-    io.log(
-        log_path, f"Test RMSE: {torch.sqrt(test_MSE):.5f}"
-    )
+    io.log(log_path, f"Test RMSE: {torch.sqrt(test_MSE):.5f}")
 
     # ===== Finish =====
     dt_eval = time.time() - t0_eval
