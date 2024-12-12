@@ -84,7 +84,6 @@ def train():
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=ml_options["TRAIN"]["device"],
             )
-            print(model._x_dos)
 
         else:  # Use pre-trained model
             io.log(
