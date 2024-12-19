@@ -947,7 +947,12 @@ def spline_eigenenergies(
     return splines_mts
 
 
-def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = None):
+def parse_angle_resolved_pdos(
+    aims_output_dir: str,
+    frame: Optional[Frame] = None,
+    tetrahedron: bool = False,
+    raw: bool = False
+):
     """
     Parses the angle resolved PDOS data in files named, for instance:
 
@@ -959,7 +964,7 @@ def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = Non
 
     where the arguments are the energy range, number of points, and Gaussian width.
 
-    Returns a dictionary of the parsed data, where each key is a (symbol, l) tuple, and
+    Returns a dictionary of the parsed data, where each key is a (l, symbol) tuple, and
     the values are a dictionary of PDOS arrays indexed by atom index (NOTE: 1-indexing).
 
     ``frame`` can be optionally passed. If none, it is read from "geometry.in" in
@@ -975,7 +980,7 @@ def parse_angle_resolved_pdos(aims_output_dir: str, frame: Optional[Frame] = Non
         # Read atom PDOS file
         pdos_atom = np.loadtxt(
             join(
-                aims_output_dir, f"atom_proj_dos_tetrahedron_{sym}{str(i).zfill(4)}.dat"
+                aims_output_dir, f"atom_proj_dos{'_tetrahedron' if tetrahedron else ''}_{sym}{str(i).zfill(4)}{'_raw' if raw else ''}.dat"
             )
         )
 

@@ -74,6 +74,7 @@ class RhoModel(torch.nn.Module):
         descriptor_calculator: torch.nn.Module,
         architecture: Dict[str, List[dict]],
         target_basis: mts.Labels,
+        energy_bins: int,
         dtype: torch.dtype = torch.float64,
         device: torch.device = "cpu",
         pretrain: bool = False,
@@ -98,6 +99,7 @@ class RhoModel(torch.nn.Module):
 
         # Set target basis
         self._target_basis = target_basis
+        self._energy_bins = energy_bins
 
         # Set architecture
         self._architecture = torch.nn.ModuleDict(

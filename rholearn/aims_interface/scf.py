@@ -52,6 +52,8 @@ def _run_scf(model: str) -> None:
     if dft_options["IDX_EXCLUDE"] is not None:
         frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
 
+    assert len(frame_idxs) > 0, "No frames in the selection."
+
     frames = [frames[A] for A in frame_idxs]
 
     # Build the calculation settings for each frame in turn
@@ -115,6 +117,8 @@ def _process_scf(model: str) -> None:
     if dft_options["IDX_EXCLUDE"] is not None:
         frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
 
+    assert len(frame_idxs) > 0, "No frames in the selection."
+
     python_command = (
         "from rholearn.aims_interface import parser;"
         " from rholearn.utils.io import pickle_dict;"
@@ -135,10 +139,29 @@ def _process_scf(model: str) -> None:
     hpc.run_script(".", "sbatch " + fname)
 
     if dft_options.get("DOS_SPLINES") is not None:
-        _spline_eigenvalues()
+
+        for A in frame_idxs:
+            os.makedirs(dft_options["PROCESSED_DIR"](A), exist_ok=True)
+            shutil.copy("dft-options.yaml", dft_options["PROCESSED_DIR"](A))
+            shutil.copy("hpc-options.yaml", dft_options["PROCESSED_DIR"](A))
+
+        python_command = (
+            'python3 -c "from rholearn.aims_interface import scf;'
+            ' scf._spline_eigenvalues_for_frame(frame_idx="${ARRAY_IDX}");"'
+        )
+        # Process the RI fit output for each frame
+        fname = f"process-scf-doslearn-{hpc.timestamp()}.sh"
+        hpc.write_python_sbatch_array(
+            fname=fname,
+            array_idxs=frame_idxs,
+            run_dir=dft_options["PROCESSED_DIR"],
+            python_command=python_command,
+            slurm_params=hpc_options["SLURM_PARAMS"],
+        )
+        hpc.run_script(".", "sbatch " + fname)
 
 
-def _spline_eigenvalues() -> None:
+def _spline_eigenvalues_for_frame(frame_idx: int) -> None:
     """
     Parses the files "Final_KS_eigenvalues.dat" and splines them. Saves the resulting
     TensorMap objects to the processed data directory.
@@ -147,27 +170,16 @@ def _spline_eigenvalues() -> None:
     # Set the DFT settings globally
     dft_options, _ = _get_options("doslearn")
 
-    # Get the frames and indices
-    frames = system.read_frames_from_xyz(dft_options["XYZ"])
-    if dft_options.get("IDX_SUBSET") is not None:
-        frame_idxs = dft_options.get("IDX_SUBSET")
-    else:
-        frame_idxs = list(range(len(frames)))
-
-    # Exclude some structures if specified
-    if dft_options["IDX_EXCLUDE"] is not None:
-        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
-
-    for A in frame_idxs:
-        parser.spline_eigenenergies(
-            aims_output_dir=dft_options["SCF_DIR"](A),
-            frame_idx=A,
-            sigma=dft_options["DOS_SPLINES"]["sigma"],
-            min_energy=dft_options["DOS_SPLINES"]["min_energy"],
-            max_energy=dft_options["DOS_SPLINES"]["max_energy"],
-            interval=dft_options["DOS_SPLINES"]["interval"],
-            save_dir=dft_options["PROCESSED_DIR"](A),
-        )
+    # Spline eigenenergies
+    parser.spline_eigenenergies(
+        aims_output_dir=dft_options["SCF_DIR"](frame_idx),
+        frame_idx=frame_idx,
+        sigma=dft_options["DOS_SPLINES"]["sigma"],
+        min_energy=dft_options["DOS_SPLINES"]["min_energy"],
+        max_energy=dft_options["DOS_SPLINES"]["max_energy"],
+        interval=dft_options["DOS_SPLINES"]["interval"],
+        save_dir=dft_options["PROCESSED_DIR"](frame_idx),
+    )
 
 
 def _get_options(model: str) -> None:

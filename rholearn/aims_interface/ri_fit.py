@@ -36,6 +36,8 @@ def run_ri_fit() -> None:
     if dft_options["IDX_EXCLUDE"] is not None:
         frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
 
+    assert len(frame_idxs) > 0, "No frames in the selection."
+
     frames = [frames[A] for A in frame_idxs]
 
     # Write submission script and run FHI-aims via sbatch array
@@ -73,6 +75,8 @@ def setup_ri_fit() -> None:
     # Exclude some structures if specified
     if dft_options["IDX_EXCLUDE"] is not None:
         frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    assert len(frame_idxs) > 0, "No frames in the selection."
 
     # Define the python command to run for the given frame
     python_command = (
@@ -154,6 +158,8 @@ def process_ri_fit() -> None:
     # Exclude some structures if specified
     if dft_options["IDX_EXCLUDE"] is not None:
         frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    assert len(frame_idxs) > 0, "No frames in the selection."
 
     for A in frame_idxs:
         os.makedirs(dft_options["PROCESSED_DIR"](A), exist_ok=True)

@@ -71,7 +71,7 @@ To run some tests (currently limited to testing `rholearn.loss`), run `pytest te
 
 ### Installing `FHI-aims`
 
-For generating reference data, using the `aims_interface` of `rholearn`, a working installation of **`FHIaims >= 240926`** is required. FHI-aims is not open source but is free for academic use. Follow the instructions on their website [fhi-aims.org/get-the-code](https://fhi-aims.org/get-the-code/) to get and build the code. The end result should be an executable, compiled for your specific system.
+For generating reference data, using the `aims_interface` of `rholearn`, a working installation of **`FHIaims >= 241216`** is required. FHI-aims is not open source but is free for academic use. Follow the instructions on their website [fhi-aims.org/get-the-code](https://fhi-aims.org/get-the-code/) to get and build the code. The end result should be an executable, compiled for your specific system. This may have a name along the lines of `aims.241216.scalapack.mpi.x` or similar, the path of which must be specified in input options when running `rholearn` and `doslearn`.
 
 There are also useful tutorials on the basics of running `FHI-aims` [here](https://fhi-aims-club.gitlab.io/tutorials/basics-of-running-fhi-aims/).
 

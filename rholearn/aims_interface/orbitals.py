@@ -287,6 +287,7 @@ def calculate_dos(
     aims_output_dir: str,
     gaussian_width: float,
     e_grid: np.ndarray = None,
+    k_point: Optional[int] = None,
 ):
     """
     Centers a Gaussian of width `gaussian_width` on each energy eigenvalue read from
@@ -305,6 +306,9 @@ def calculate_dos(
 
     dos = np.zeros(len(e_grid))
     for kso in kso_info:
+        if k_point is not None:
+            if kso["kpt_i"] != k_point:
+                continue
         dos += evaluate_gaussian(
             target=e_grid, center=kso["energy_eV"], width=gaussian_width
         )

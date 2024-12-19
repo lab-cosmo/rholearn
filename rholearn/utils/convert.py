@@ -534,7 +534,7 @@ def coeff_vector_to_sparse_by_center_type(
     coeff_vector = mts.remove_dimension(coeff_vector, "keys", "o3_sigma")
     coeff_vector = coeff_vector.components_to_properties("o3_mu")
     coeff_vector = coeff_vector.keys_to_properties("o3_lambda", sort_samples=False)
-    coeff_vector = mts.permute_dimensions(coeff_vector, "properties", (0, 2, 1))
+    coeff_vector = mts.permute_dimensions(coeff_vector, "properties", (2, 0, 3, 1))
     coeff_vector = mts.sort(coeff_vector, "properties")
 
     return coeff_vector

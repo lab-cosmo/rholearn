@@ -32,7 +32,7 @@ class SoapDosNet(torch.nn.Module):
         super(SoapDosNet, self).__init__()
 
         # Construct the descriptor calculator
-        self._spherical_expansion_calc = SoapPowerSpectrum(**soap_hypers)
+        self._soap_power_spectrum_calc = SoapPowerSpectrum(**soap_hypers)
         self._atom_types = atom_types
         self._min_energy = min_energy
         self._max_energy = max_energy
@@ -100,19 +100,33 @@ class SoapDosNet(torch.nn.Module):
             modules=nets,
             out_properties=out_properties,
         )
-        self._nn
 
     def compute_descriptor(
-        self, frames: List[Frame], frame_idxs: Optional[List[int]] = None
+        self,
+        frames: List[Frame],
+        frame_idxs: Optional[List[int]] = None,
     ) -> mts.TensorMap:
         """
         Compute the SOAP descriptor for a list of frames.
         """
-        if frame_idxs is None:
-            frame_idxs = list(range(len(frames)))
         systems = featomic.torch.systems_to_torch(frames)
-        soap = self._spherical_expansion_calc(systems)
-        soap = soap.keys_to_properties(["neighbor_1_type", "neighbor_2_type"])
+        soap = self._soap_power_spectrum_calc(systems)
+        soap = soap.keys_to_properties(
+            mts.Labels(
+                names=["neighbor_1_type", "neighbor_2_type"],
+                values=torch.tensor(
+                    [
+                        [j, k]
+                        for j in self._atom_types
+                        for k in self._atom_types
+                    ]
+                ),
+            )
+        )
+
+        # Re-index "system" metadata along samples axis
+        if frame_idxs is not None:
+            soap = train_utils.reindex_tensormap(soap, frame_idxs)
 
         return soap
 

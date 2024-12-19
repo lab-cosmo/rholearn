@@ -96,7 +96,7 @@ def train():
             target_basis = convert.get_global_basis_set(
                 [
                     io.unpickle_dict(
-                        join(dft_options["PROCESSED_DIR"](A), "basis_set.pickle")
+                        join(dft_options["PROCESSED_DIR"](A, 0), "basis_set.pickle")
                     )
                     for A in frame_idxs
                 ],
@@ -209,7 +209,6 @@ def train():
     io.log(log_path, "Build training dataset")
     io.log(log_path, f"    Training system ID: {all_subset_id[0]}")
     with torch.no_grad():
-        # if ml_options["DESCRIPTOR_HYPERS"]["use_pca"] is True:
         # Check fitting of each PCA module
         for attr in descriptor_calculator.__dir__():
             if attr.startswith("_epca"):
@@ -240,6 +239,7 @@ def train():
             load_dir=dft_options["PROCESSED_DIR"],
             overlap_cutoff=ml_options["OVERLAP_CUTOFF"],
             overlap_threshold=ml_options["OVERLAP_THRESHOLD"],
+            energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
             device=torch.device(ml_options["TRAIN"]["device"]),
             dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
             log_path=log_path,
@@ -249,7 +249,6 @@ def train():
         if (
             ml_options["TRAIN"]["restart_epoch"] is None
             and ml_options["LOAD_MODEL"] is None
-            # and ml_options["DESCRIPTOR_HYPERS"]["use_pca"] is True
         ):
             # If newly initializing a model and using PCAs, check that they are now
             # fitted.
@@ -274,6 +273,7 @@ def train():
             load_dir=dft_options["PROCESSED_DIR"],
             overlap_cutoff=None,  # no cutoff for validation
             overlap_threshold=None,  # no threshold for validation
+            energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
             device=torch.device(ml_options["TRAIN"]["device"]),
             dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
             log_path=log_path,
@@ -335,6 +335,7 @@ def train():
             out_properties = train_utils.target_basis_set_to_out_properties(
                 in_keys,
                 target_basis,
+                energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
             )
             model = RhoModel(
                 in_keys=in_keys,
@@ -343,6 +344,7 @@ def train():
                 descriptor_calculator=descriptor_calculator,
                 architecture=ml_options["ARCHITECTURE"],
                 target_basis=target_basis,
+                energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=torch.device(ml_options["TRAIN"]["device"]),
                 pretrain=ml_options["PRETRAIN"],
@@ -680,11 +682,11 @@ def _get_options():
     dft_options["SCF_DIR"] = lambda frame_idx: join(
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
-    dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
+    dft_options["RI_DIR"] = lambda frame_idx, energy_bin: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"], f"e_{energy_bin}"
     )
-    dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
+    dft_options["PROCESSED_DIR"] = lambda frame_idx, energy_bin: join(
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"], f"e_{energy_bin}"
     )
     ml_options["ML_DIR"] = os.getcwd()
     ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")

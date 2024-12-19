@@ -77,7 +77,7 @@ def load_and_process_overlap(
     """
     # Load overlap from disk
     overlap = load_tensormap_to_torch(
-        join(load_dir(frame_idx), "ri_ovlp.npz"), dtype=dtype, device=device
+        join(load_dir(frame_idx, 0), "ri_ovlp.npz"), dtype=dtype, device=device
     )
 
     # Drop empty blocks that may be present
@@ -274,6 +274,7 @@ def center_types_to_descriptor_basis_in_properties(
 def target_basis_set_to_out_properties(
     in_keys: mts.Labels,
     target_basis: mts.Labels,
+    energy_bins: int,
 ) -> List[mts.Labels]:
     """
     Converts the basis set definition to a list of Labels objects corresponding to the
@@ -296,8 +297,15 @@ def target_basis_set_to_out_properties(
 
         out_properties.append(
             mts.Labels(
-                names=["n"],
-                values=torch.arange(nmax).reshape(-1, 1),
+                names=["energy_bin", "n"],
+                values=torch.tensor(
+                    [
+                        [energy, radial]
+                        for energy in torch.arange(energy_bins)
+                        for radial in torch.arange(nmax)
+                    ],
+                    dtype=torch.int64,
+                ).reshape(-1, 2),
             )
         )
     return out_properties
@@ -311,6 +319,7 @@ def get_dataset(
     load_dir: Callable,
     overlap_cutoff: Optional[float],
     overlap_threshold: Optional[float],
+    energy_bins: Optional[int],
     dtype: Optional[torch.dtype],
     device: Optional[str],
     log_path: str,
@@ -344,8 +353,17 @@ def get_dataset(
         # Load
         io.log(log_path, "    Loading target coeffs")
         target_c = [
-            load_tensormap_to_torch(
-                join(load_dir(A), "ri_coeffs.npz"), dtype=dtype, device=device
+            mts.join(
+                [
+                    load_tensormap_to_torch(
+                        join(load_dir(A, energy_bin), "ri_coeffs.npz"),
+                        dtype=dtype,
+                        device=device,
+                    )
+                    for energy_bin in range(energy_bins)
+                ],
+                axis="properties",
+                remove_tensor_name=True,
             )
             for A in frame_idxs
         ]
@@ -652,13 +670,22 @@ def epoch_step(
                 check_metadata=check_metadata,
             )
             input_c = convert.coeff_vector_to_sparse_by_center_type(input_c, "torch")
-            batch_loss = loss_fn(  # compute loss
-                input_c=mask._drop_empty_blocks(input_c, "torch"),
-                target_c=mask._drop_empty_blocks(batch.target_c, "torch"),
-                target_w=mask._drop_empty_blocks(batch.target_w, "torch"),
-                overlap=batch.overlap,
-                check_metadata=check_metadata,
-            )
+            # mts.save("input_c.npz", input_c)
+            # mts.save("target_c.npz", batch.target_c)
+
+            batch_loss = 0
+            for input_c, target_c, target_w in zip(
+                slice_by_energy_bin(input_c, model._energy_bins),
+                slice_by_energy_bin(batch.target_c, model._energy_bins),
+                slice_by_energy_bin(batch.target_w, model._energy_bins),
+            ):
+                batch_loss += loss_fn(  # compute loss
+                    input_c=mask._drop_empty_blocks(input_c, "torch"),
+                    target_c=mask._drop_empty_blocks(target_c, "torch"),
+                    target_w=mask._drop_empty_blocks(target_w, "torch"),
+                    overlap=batch.overlap,
+                    check_metadata=check_metadata,
+                )
             loss_epoch += batch_loss  # store loss
             n_samples_epoch += len(batch.sample_id)  # store num frames
 
@@ -679,13 +706,19 @@ def epoch_step(
                     input_c = convert.coeff_vector_to_sparse_by_center_type(
                         input_c, "torch"
                     )
-                    batch_loss = loss_fn(  # compute loss
-                        input_c=mask._drop_empty_blocks(input_c, "torch"),
-                        target_c=mask._drop_empty_blocks(batch.target_c, "torch"),  # noqa: B023
-                        target_w=mask._drop_empty_blocks(batch.target_w, "torch"),  # noqa: B023
-                        overlap=batch.overlap,  # noqa: B023
-                        check_metadata=check_metadata,
-                    )
+                    batch_loss = 0
+                    for input_c, target_c, target_w in zip(
+                        slice_by_energy_bin(input_c, model._energy_bins),
+                        slice_by_energy_bin(batch.target_c, model._energy_bins),
+                        slice_by_energy_bin(batch.target_w, model._energy_bins),
+                    ):
+                        batch_loss += loss_fn(  # compute loss
+                            input_c=mask._drop_empty_blocks(input_c, "torch"),
+                            target_c=mask._drop_empty_blocks(target_c, "torch"),  # noqa: B023
+                            target_w=mask._drop_empty_blocks(target_w, "torch"),  # noqa: B023
+                            overlap=batch.overlap,  # noqa: B023
+                            check_metadata=check_metadata,
+                        )
                     batch_loss.backward()  # backward pass
                     return batch_loss
 
@@ -706,13 +739,19 @@ def epoch_step(
                 input_c = convert.coeff_vector_to_sparse_by_center_type(
                     input_c, "torch"
                 )
-                batch_loss = loss_fn(  # compute loss
-                    input_c=mask._drop_empty_blocks(input_c, "torch"),
-                    target_c=mask._drop_empty_blocks(batch.target_c, "torch"),
-                    target_w=mask._drop_empty_blocks(batch.target_w, "torch"),
-                    overlap=batch.overlap,
-                    check_metadata=check_metadata,
-                )
+                batch_loss = 0
+                for input_c, target_c, target_w in zip(
+                    slice_by_energy_bin(input_c, model._energy_bins),
+                    slice_by_energy_bin(batch.target_c, model._energy_bins),
+                    slice_by_energy_bin(batch.target_w, model._energy_bins),
+                ):
+                    batch_loss += loss_fn(  # compute loss
+                        input_c=mask._drop_empty_blocks(input_c, "torch"),
+                        target_c=mask._drop_empty_blocks(target_c, "torch"),  # noqa: B023
+                        target_w=mask._drop_empty_blocks(target_w, "torch"),  # noqa: B023
+                        overlap=batch.overlap,  # noqa: B023
+                        check_metadata=check_metadata,
+                    )
                 batch_loss.backward()  # backward pass
                 optimizer.step()  # update parameters
                 loss_epoch += batch_loss  # store loss
@@ -748,6 +787,35 @@ def save_checkpoint(
 
     # Save the validation loss
     torch.save(val_loss, join(chkpt_dir, "val_loss.pt"))
+
+
+def slice_by_energy_bin(tensor: Optional[mts.TensorMap], energy_bins: int) -> List[mts.TensorMap]:
+    """
+    Slices by "energy_bin" property dimension
+    """
+    if tensor is None:
+        return [None] * energy_bins
+
+    sliced_tensors = []
+    for energy_bin in range(energy_bins):
+        sliced_tensor = mts.slice(
+            tensor,
+            "properties",
+            mts.Labels(
+                ["energy_bin"],
+                torch.tensor(
+                    [energy_bin], dtype=torch.int64
+                ).reshape(-1, 1)
+            ),
+        )
+        sliced_tensor = mts.remove_dimension(
+            sliced_tensor,
+            "properties",
+            "energy_bin",
+        )
+        sliced_tensors.append(sliced_tensor)
+    
+    return sliced_tensors
 
 
 def report_dt(dt: float, message: str):

@@ -31,19 +31,6 @@ def train():
     t0_setup = time.time()
     dft_options, ml_options = _get_options()
 
-    # Get frame indices we have data for (or a subset if specified)
-    if dft_options.get("IDX_SUBSET") is not None:
-        frame_idxs = dft_options.get("IDX_SUBSET")
-    else:
-        frame_idxs = None
-    # Load all the frames
-    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-
-    if frame_idxs is None:
-        frame_idxs = list(range(len(all_frames)))
-
-    _check_input_settings(dft_options, ml_options, frame_idxs)  # TODO: basic checks
-
     # ===== Setup =====
     os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
     log_path = join(ml_options["ML_DIR"], "outputs/train.log")
@@ -53,6 +40,23 @@ def train():
     # Random seed and dtype
     torch.manual_seed(ml_options["SEED"])
     torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
+
+    # Load all the frames
+    io.log(log_path, "Loading frames")
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
+
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(range(len(all_frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
+    _check_input_settings(dft_options, ml_options, frame_idxs)  # TODO: basic checks
+
 
     # ===== Build model, optimizer, and scheduler if applicable =====
 
@@ -90,7 +94,10 @@ def train():
                 log_path,
                 f"Using pre-trained model from path {ml_options['PRETRAINED_MODEL']}",
             )
-            model = torch.load(ml_options["PRETRAINED_MODEL"])
+            model = torch.load(
+                ml_options["PRETRAINED_MODEL"],
+                weights_only=False,
+            )
 
         # Load the Fermi levels
         if model._energy_reference == "Fermi":
@@ -104,8 +111,9 @@ def train():
             energy_reference = [0.0] * len(frame_idxs)
 
         # Define the learnable alignment that is used for the adaptive energy reference
+        energy_reference = torch.tensor(energy_reference)
         alignment = torch.nn.Parameter(
-            torch.tensor(
+            torch.zeros_like(
                 energy_reference,
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=ml_options["TRAIN"]["device"],
@@ -146,7 +154,8 @@ def train():
             join(
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                 "model.pt",
-            )
+            ),
+            weights_only=False,
         )
 
         # Load optimizer
@@ -155,7 +164,8 @@ def train():
             join(
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                 "optimizer.pt",
-            )
+            ),
+            weights_only=False,
         )
 
         # Load scheduler
@@ -164,7 +174,8 @@ def train():
             join(
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                 "scheduler.pt",
-            )
+            ),
+            weights_only=False,
         )
 
         # Load the validation loss
@@ -172,7 +183,8 @@ def train():
             join(
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                 "val_loss.pt",
-            )
+            ),
+            weights_only=False,
         )
 
         # Load alignment
@@ -180,12 +192,16 @@ def train():
             join(
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
                 "alignment.pt",
-            )
+            ),
+            weights_only=False,
         )
 
     # Try a model save/load
     torch.save(model, join(ml_options["ML_DIR"], "model.pt"))
-    torch.load(join(ml_options["ML_DIR"], "model.pt"))
+    torch.load(
+        join(ml_options["ML_DIR"], "model.pt"),
+        weights_only=False,
+    )
     os.remove(join(ml_options["ML_DIR"], "model.pt"))
     io.log(log_path, str(model).replace("\n", f"\n# {utils.timestamp()}"))
 
@@ -285,18 +301,28 @@ def train():
 
             # Compute prediction
             prediction = model(frames=batch.frames, descriptor=batch.descriptor)
+
+            # Sum over "center_type" and mean over "atom"
+            prediction = mts.sum_over_samples(prediction, "center_type")
             prediction = mts.mean_over_samples(prediction, "atom")
             prediction = prediction[0].values
 
             # Align the targets. Enforce that alignment has a mean of 0 to eliminate
             # systematic shifts across the entire dataset
-            normalized_alignment = alignment - torch.mean(alignment)
+            normalized_alignment = energy_reference + (
+                alignment - torch.mean(alignment)
+            )
             target = train_utils.evaluate_spline(
                 batch.splines[0].values,
                 spline_positions,
-                model._x_dos + normalized_alignment[list(batch.sample_id)].view(-1, 1),
+                model._x_dos 
+                + normalized_alignment[
+                    [
+                        (torch.tensor(all_subset_id[0]) == sample_id).nonzero(as_tuple=True)[0].item()
+                        for sample_id in batch.sample_id
+                    ]
+                ].view(-1, 1),
             )
-
             # Compute loss
             batch_loss = train_utils.t_get_mse(prediction, target, model._x_dos)
             batch_loss *= len(list(batch.sample_id)) / ml_options["N_TRAIN"]
@@ -314,6 +340,7 @@ def train():
             val_splines = []
             for batch in val_loader:
                 prediction = model(frames=batch.frames, descriptor=batch.descriptor)
+                prediction = mts.sum_over_samples(prediction, "center_type")
                 prediction = mts.mean_over_samples(prediction, "atom")
                 prediction = prediction[0].values
                 val_predictions.append(prediction)
