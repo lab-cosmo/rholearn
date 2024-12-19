@@ -6,7 +6,7 @@ This tutorial follows two parts: 1) data generation with `FHI-aims` and 2) model
  
 First, data is generated with `FHI-aims`. SCF calculations are converged to compute the self consistent solutions to the Kohn-Sham equations for each frame, along with, output of the eigenvalues on a dense k-grid.
 
-Second, the reference splined eigenvalues form the dataset for training a machine learning model. In `doslearn`, an invariant power spectrum descriptor-based neural network is used to learn the mapping from nuclear coordinates to the density of states. A model is trained iteratively over a number of epochs, optimizing the NN weights by backpropagation and gradient descent. Also optimized is an alignment vector that finds the optimal shift of the DOS for each frane to aid model training.
+Second, the DOS of each structure is computed via gaussian smearing of the eigenvalues obtained from the SCF calculations. The DOS for each frame is represented by Cubic Hermite Splines to facilitate the changing of the energy reference, which is an ill-defined quantity in bulk calculations. As the energy reference chosen is arbitrary, this training workflow finds the energy reference that is optimal for model training. These splines form the dataset for training a machine learning model. In `doslearn`, an invariant power spectrum descriptor-based neural network is used to learn the mapping from nuclear coordinates to the DOS projected on a discretized energy grid. A model is trained iteratively over a number of epochs, optimizing the NN weights by backpropagation and gradient descent. Also optimized is an alignment vector that represents the energy reference for the DOS for each frame to aid model training.
 
 ## Supporting notebooks
 

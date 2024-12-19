@@ -94,7 +94,7 @@ def train():
                     atom_types.update({type_})
             atom_types = list(atom_types)
 
-            # Init model
+            # Initialize model
             model = SoapDosNet(
                 ml_options["SPHERICAL_EXPANSION_HYPERS"],
                 atom_types=atom_types,
@@ -303,7 +303,8 @@ def train():
             dos_pred_train = mts.mean_over_samples(dos_pred_train, "atom")
             dos_pred_train = dos_pred_train[0].values
 
-            # Align the targets. Enforce that alignment has a mean of 0 to eliminate
+            # Align the targets with respect to the original energy reference.
+            # Enforce that alignment has a mean of 0 to eliminate
             # systematic shifts across the entire dataset
             batch_train_alignment = train_alignment[
                 [
