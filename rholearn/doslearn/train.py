@@ -57,6 +57,25 @@ def train():
 
     _check_input_settings(dft_options, ml_options, frame_idxs)  # TODO: basic checks
 
+    # ===== Crossval split of IDs =====
+
+    # First define subsets of system IDs for crossval
+    io.log(log_path, "Split system IDs into subsets")
+    all_subset_id = rho_train_utils.crossval_idx_split(
+        frame_idxs=frame_idxs,
+        n_train=ml_options["N_TRAIN"],
+        n_val=ml_options["N_VAL"],
+        n_test=ml_options["N_TEST"],
+        seed=ml_options["SEED"],
+    )
+    io.pickle_dict(
+        join(ml_options["ML_DIR"], "outputs", "crossval_idxs.pickle"),
+        {
+            "train": all_subset_id[0],
+            "val": all_subset_id[1],
+            "test": all_subset_id[2],
+        },
+    )
 
     # ===== Build model, optimizer, and scheduler if applicable =====
 
@@ -99,22 +118,11 @@ def train():
                 weights_only=False,
             )
 
-        # Load the Fermi levels
-        if model._energy_reference == "Fermi":
-            # TODO: make this part of the data parsing - i.e. save a torch tensor
-            # "fermi.pt" along with "dos_spline.npz"?
-            energy_reference = [
-                parser.parse_fermi_energy(dft_options["SCF_DIR"](A)) for A in frame_idxs
-            ]
-        else:
-            assert ml_options["TARGET_DOS"]["reference"] == "Hartree"
-            energy_reference = [0.0] * len(frame_idxs)
-
-        # Define the learnable alignment that is used for the adaptive energy reference
-        energy_reference = torch.tensor(energy_reference)
-        alignment = torch.nn.Parameter(
-            torch.zeros_like(
-                energy_reference,
+        # Define the learnable alignment for the training structures that is used for
+        # the adaptive energy reference
+        train_alignment = torch.nn.Parameter(
+            torch.zeros(
+                len(all_subset_id[0]),
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=ml_options["TRAIN"]["device"],
             )
@@ -122,10 +130,16 @@ def train():
 
         # Initialize optimizer and scheduler
         io.log(log_path, "Initializing optimizer")
-        optimizer = torch.optim.Adam(
-            list(model.parameters()) + [alignment],
-            lr=ml_options["OPTIMIZER_ARGS"]["lr"],
-        )
+        if ml_options["USE_ADAPTIVE_REFERENCE"]:
+            optimizer = torch.optim.Adam(
+                list(model.parameters()) + [train_alignment],
+                lr=ml_options["OPTIMIZER_ARGS"]["lr"],
+            )
+        else:
+            optimizer = torch.optim.Adam(
+                list(model.parameters()),
+                lr=ml_options["OPTIMIZER_ARGS"]["lr"],
+            )
 
         # Initialize scheduler
         io.log(log_path, "Initializing scheduler")
@@ -188,10 +202,10 @@ def train():
         )
 
         # Load alignment
-        alignment = torch.load(
+        train_alignment = torch.load(
             join(
                 ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "alignment.pt",
+                "train_alignment.pt",
             ),
             weights_only=False,
         )
@@ -206,24 +220,6 @@ def train():
     io.log(log_path, str(model).replace("\n", f"\n# {utils.timestamp()}"))
 
     # ===== Create datasets and dataloaders =====
-
-    # First define subsets of system IDs for crossval
-    io.log(log_path, "Split system IDs into subsets")
-    all_subset_id = rho_train_utils.crossval_idx_split(
-        frame_idxs=frame_idxs,
-        n_train=ml_options["N_TRAIN"],
-        n_val=ml_options["N_VAL"],
-        n_test=ml_options["N_TEST"],
-        seed=ml_options["SEED"],
-    )
-    io.pickle_dict(
-        join(ml_options["ML_DIR"], "outputs", "crossval_idxs.pickle"),
-        {
-            "train": all_subset_id[0],
-            "val": all_subset_id[1],
-            "test": all_subset_id[2],
-        },
-    )
 
     # Train dataset
     io.log(log_path, f"Training system ID: {all_subset_id[0]}")
@@ -277,8 +273,8 @@ def train():
     # Get the spline positions
     spline_positions = train_utils.get_spline_positions(
         min_energy=dft_options["DOS_SPLINES"]["min_energy"],
-        max_energy=dft_options["DOS_SPLINES"]["max_energy"]
-        - ml_options["TARGET_DOS"]["max_energy_buffer"],
+        max_energy=dft_options["DOS_SPLINES"]["max_energy"],
+        # - ml_options["TARGET_DOS"]["max_energy_buffer"],
         interval=dft_options["DOS_SPLINES"]["interval"],
     )
 
@@ -297,67 +293,102 @@ def train():
         train_loss = 0
         for batch in train_loader:
 
-            optimizer.zero_grad()
+            optimizer.zero_grad()  # zero gradients
 
             # Compute prediction
-            prediction = model(frames=batch.frames, descriptor=batch.descriptor)
+            dos_pred_train = model(frames=batch.frames, descriptor=batch.descriptor)
 
             # Sum over "center_type" and mean over "atom"
-            prediction = mts.sum_over_samples(prediction, "center_type")
-            prediction = mts.mean_over_samples(prediction, "atom")
-            prediction = prediction[0].values
+            dos_pred_train = mts.sum_over_samples(dos_pred_train, "center_type")
+            dos_pred_train = mts.mean_over_samples(dos_pred_train, "atom")
+            dos_pred_train = dos_pred_train[0].values
 
             # Align the targets. Enforce that alignment has a mean of 0 to eliminate
             # systematic shifts across the entire dataset
-            normalized_alignment = energy_reference + (
-                alignment - torch.mean(alignment)
+            batch_train_alignment = train_alignment[
+                [
+                    (torch.tensor(all_subset_id[0]) == sample_id).nonzero(as_tuple=True)[0].item()
+                    for sample_id in batch.sample_id
+                ]
+            ]
+            normalized_alignment = batch.energy_reference.squeeze() + (
+                batch_train_alignment - torch.mean(train_alignment)
             )
-            target = train_utils.evaluate_spline(
+
+            # Compute the target DOS
+            dos_target_train = train_utils.evaluate_spline(
                 batch.splines[0].values,
                 spline_positions,
-                model._x_dos 
-                + normalized_alignment[
-                    [
-                        (torch.tensor(all_subset_id[0]) == sample_id).nonzero(as_tuple=True)[0].item()
-                        for sample_id in batch.sample_id
-                    ]
-                ].view(-1, 1),
+                model._x_dos + normalized_alignment.view(-1, 1),
             )
             # Compute loss
-            batch_loss = train_utils.t_get_mse(prediction, target, model._x_dos)
-            batch_loss *= len(list(batch.sample_id)) / ml_options["N_TRAIN"]
+            train_loss_batch = train_utils.t_get_mse(
+                dos_pred_train, dos_target_train, model._x_dos
+            )
+            train_loss_batch *= len(list(batch.sample_id)) / ml_options["N_TRAIN"]
 
             # Update parameters
-            batch_loss.backward()
+            train_loss_batch.backward()
             optimizer.step()
 
-            train_loss += batch_loss.item()
+            train_loss += train_loss_batch.item()
 
         # Validation step
         val_loss = torch.nan
         if epoch % ml_options["TRAIN"]["val_interval"] == 0:
-            val_predictions = []
-            val_splines = []
+            dos_pred_val = []
+            dos_splines_val = []
+            energy_reference_val = []
             for batch in val_loader:
-                prediction = model(frames=batch.frames, descriptor=batch.descriptor)
-                prediction = mts.sum_over_samples(prediction, "center_type")
-                prediction = mts.mean_over_samples(prediction, "atom")
-                prediction = prediction[0].values
-                val_predictions.append(prediction)
-                val_splines.append(batch.splines[0].values)
+                # Make a prediction
+                dos_pred_val_batch = model(frames=batch.frames, descriptor=batch.descriptor)
+                
+                # Reduce over "center_type" and "atom"
+                dos_pred_val_batch = mts.sum_over_samples(dos_pred_val_batch, "center_type")
+                dos_pred_val_batch = mts.mean_over_samples(dos_pred_val_batch, "atom")
+                dos_pred_val_batch = dos_pred_val_batch[0].values
 
-            val_loss, _ = train_utils.opt_mse_spline(
-                torch.vstack(val_predictions),
-                model._x_dos,
-                torch.vstack(val_splines),
-                spline_positions,
-                n_epochs=50,
-            )
+                # Store various quantities from this batch
+                dos_pred_val.append(dos_pred_val_batch)
+                dos_splines_val.append(batch.splines[0].values)
+                energy_reference_val.append(batch.energy_reference)
+
+            # Optimize the adaptive energy reference
+            if ml_options["USE_ADAPTIVE_REFERENCE"]:
+                val_loss, _ = train_utils.opt_mse_spline(
+                    torch.vstack(dos_pred_val),
+                    model._x_dos,
+                    torch.vstack(dos_splines_val),
+                    spline_positions,
+                    n_epochs=50,
+                )
+
+            # Or used the fixed energy reference (either "Fermi" or "Hartree")
+            else:
+                with torch.no_grad():
+                    # Compute the target DOS via splines. TODO: for a fixed energy
+                    # reference, splines are not needed here. Instead the unshifted
+                    # target DOS can just be stored and used in validation loss
+                    # computation. For now, we use the slower version of evaluating the
+                    # spline for consistency with the adaptive energy reference
+                    # approach.
+                    dos_target_val = train_utils.evaluate_spline(
+                        torch.vstack(dos_splines_val),
+                        spline_positions,
+                        model._x_dos 
+                        + torch.concatenate(energy_reference_val).view(-1, 1),
+                    )
+
+                    # Compute the validation loss
+                    val_loss = train_utils.t_get_mse(
+                        torch.vstack(dos_pred_val),
+                        dos_target_val,
+                        model._x_dos,
+                    )
             scheduler.step(val_loss)
 
-        lr = scheduler._last_lr[0]
-
         # Log results on this epoch
+        lr = scheduler._last_lr[0]
         if epoch % ml_options["TRAIN"]["log_interval"] == 0 or epoch == 1:
             log_msg = (
                 f"epoch {epoch}"
@@ -376,7 +407,7 @@ def train():
                 best_val_loss,
                 chkpt_dir=ml_options["CHKPT_DIR"](epoch),
             )
-            torch.save(alignment, join(ml_options["CHKPT_DIR"](epoch), "alignment.pt"))
+            torch.save(train_alignment, join(ml_options["CHKPT_DIR"](epoch), "alignment.pt"))
 
         # Save checkpoint if best validation loss
         if val_loss < best_val_loss:
@@ -388,7 +419,7 @@ def train():
                 val_loss,
                 chkpt_dir=ml_options["CHKPT_DIR"]("best"),
             )
-            torch.save(alignment, join(ml_options["CHKPT_DIR"]("best"), "alignment.pt"))
+            torch.save(train_alignment, join(ml_options["CHKPT_DIR"]("best"), "alignment.pt"))
 
         # Early stopping
         if lr <= ml_options["SCHEDULER_ARGS"]["min_lr"]:

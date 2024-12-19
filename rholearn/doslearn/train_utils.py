@@ -6,6 +6,8 @@ import torch
 from chemfiles import Frame
 from metatensor.torch.learn.data import IndexedDataset
 
+from rholearn.aims_interface import parser
+
 
 def get_dataset(
     frames: List[Frame],
@@ -52,9 +54,24 @@ def get_dataset(
         for A in frame_idxs
     ]
 
+    # Load the energy references
+    if model._energy_reference == "Fermi":
+        energy_reference = [
+            torch.tensor(
+                [torch.load(join(load_dir(A), "e_fermi.pt"), weights_only=False)],
+                dtype=dtype,
+                device=device,
+            )
+            for A in frame_idxs
+        ]
+    else:
+        assert model._energy_reference == "Hartree"
+        energy_reference = [torch.tensor([0.0], dtype=dtype, device=device)] * len(frame_idxs)
+
     return IndexedDataset(
         sample_id=frame_idxs,
         frames=frames,
+        energy_reference=energy_reference,
         descriptor=descriptors,
         splines=splines,
     )

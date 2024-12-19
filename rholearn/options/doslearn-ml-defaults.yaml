@@ -24,9 +24,13 @@ SPHERICAL_EXPANSION_HYPERS:
       type: Gto
       max_radial: 7
 
-
+# NN architecture
 HIDDEN_LAYER_WIDTHS: null  # null for linear model
 
+# Learn an adaptive energy reference
+USE_ADAPTIVE_REFERENCE: false
+
+# DOS parameters
 TARGET_DOS:
   max_energy_buffer: 10  # predict DOS grid 10 eV less than max spline energy
   reference: Fermi  # or Hartree

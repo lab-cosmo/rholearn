@@ -6,6 +6,8 @@ import os
 import shutil
 from os.path import exists, join
 
+import torch
+
 from rholearn.aims_interface import hpc, io, parser
 from rholearn.options import get_options
 from rholearn.utils import system
@@ -169,6 +171,12 @@ def _spline_eigenvalues_for_frame(frame_idx: int) -> None:
 
     # Set the DFT settings globally
     dft_options, _ = _get_options("doslearn")
+
+    # Parse and save the Fermi energy
+    torch.save(
+        parser.parse_fermi_energy(dft_options["SCF_DIR"](frame_idx)),
+        join(dft_options["PROCESSED_DIR"](frame_idx), "e_fermi.pt"),
+    )
 
     # Spline eigenenergies
     parser.spline_eigenenergies(
