@@ -99,10 +99,14 @@ def train():
                 ml_options["SPHERICAL_EXPANSION_HYPERS"],
                 atom_types=atom_types,
                 min_energy=dft_options["DOS_SPLINES"]["min_energy"],
+                # Model predicts at smaller range than is splined for:
                 max_energy=dft_options["DOS_SPLINES"]["max_energy"]
-                - ml_options["TARGET_DOS"]["max_energy_buffer"],
+                - ml_options["TARGET_DOS"]["max_energy_buffer"], 
                 interval=dft_options["DOS_SPLINES"]["interval"],
-                energy_reference=ml_options["TARGET_DOS"]["reference"],
+                energy_reference=(
+                    dft_options["DOS_SPLINES"]["energy_reference"] 
+                    + ("-adaptive" if ml_options["TARGET_DOS"]["adaptive_reference"] else "-fixed")
+                ),
                 hidden_layer_widths=ml_options["HIDDEN_LAYER_WIDTHS"],
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=ml_options["TRAIN"]["device"],
@@ -118,19 +122,20 @@ def train():
                 weights_only=False,
             )
 
-        # Define the learnable alignment for the training structures that is used for
-        # the adaptive energy reference
-        train_alignment = torch.nn.Parameter(
-            torch.zeros(
-                len(all_subset_id[0]),
-                dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
-                device=ml_options["TRAIN"]["device"],
-            )
-        )
+        
 
         # Initialize optimizer and scheduler
         io.log(log_path, "Initializing optimizer")
-        if ml_options["USE_ADAPTIVE_REFERENCE"]:
+        if ml_options["TARGET_DOS"]["adaptive_reference"]:
+            # Define the learnable alignment for the training structures that is used for
+            # the adaptive energy reference
+            train_alignment = torch.nn.Parameter(
+                torch.zeros(
+                    len(all_subset_id[0]),
+                    dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
+                    device=ml_options["TRAIN"]["device"],
+                )
+            )
             optimizer = torch.optim.Adam(
                 list(model.parameters()) + [train_alignment],
                 lr=ml_options["OPTIMIZER_ARGS"]["lr"],
@@ -201,14 +206,15 @@ def train():
             weights_only=False,
         )
 
-        # Load alignment
-        train_alignment = torch.load(
-            join(
-                ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
-                "train_alignment.pt",
-            ),
-            weights_only=False,
-        )
+        # Load alignment if an adaptive reference is being used
+        if ml_options["TARGET_DOS"]["adaptive_reference"]:
+            train_alignment = torch.load(
+                join(
+                    ml_options["CHKPT_DIR"](ml_options["TRAIN"]["restart_epoch"]),
+                    "train_alignment.pt",
+                ),
+                weights_only=False,
+            )
 
     # Try a model save/load
     torch.save(model, join(ml_options["ML_DIR"], "model.pt"))
@@ -274,7 +280,6 @@ def train():
     spline_positions = train_utils.get_spline_positions(
         min_energy=dft_options["DOS_SPLINES"]["min_energy"],
         max_energy=dft_options["DOS_SPLINES"]["max_energy"],
-        # - ml_options["TARGET_DOS"]["max_energy_buffer"],
         interval=dft_options["DOS_SPLINES"]["interval"],
     )
 
@@ -298,30 +303,31 @@ def train():
             # Compute prediction
             dos_pred_train = model(frames=batch.frames, descriptor=batch.descriptor)
 
-            # Sum over "center_type" and mean over "atom"
+            # The model predicts local and by-species contributions to the global DOS.
+            # Reduce over "center_type" and "atom" to get a global quantity.
             dos_pred_train = mts.sum_over_samples(dos_pred_train, "center_type")
             dos_pred_train = mts.mean_over_samples(dos_pred_train, "atom")
             dos_pred_train = dos_pred_train[0].values
 
-            # Align the targets with respect to the original energy reference.
-            # Enforce that alignment has a mean of 0 to eliminate
-            # systematic shifts across the entire dataset
-            batch_train_alignment = train_alignment[
-                [
-                    (torch.tensor(all_subset_id[0]) == sample_id).nonzero(as_tuple=True)[0].item()
-                    for sample_id in batch.sample_id
-                ]
-            ]
-            normalized_alignment = batch.energy_reference.squeeze() + (
-                batch_train_alignment - torch.mean(train_alignment)
-            )
+            # Get the target DDS for computing the loss. In the case of an adaptive reference, the
+            # target DOS energy scale needs to shifted and then the target DOS computed from splines.
+            # In the case of a fixed reference, the target data can be used directly.
+            if ml_options["TARGET_DOS"]["adaptive_reference"] is True:
+                x_dos_aligned = model._x_dos + (
+                    train_alignment[
+                        [
+                            (torch.tensor(all_subset_id[0]) == sample_id).nonzero(as_tuple=True)[0].item()
+                            for sample_id in batch.sample_id
+                        ]
+                    ] - torch.mean(train_alignment)  # enforce zero mean to eliminate systematic dataset shifts
+                ).view(-1, 1)
 
-            # Compute the target DOS
-            dos_target_train = train_utils.evaluate_spline(
-                batch.splines[0].values,
-                spline_positions,
-                model._x_dos + normalized_alignment.view(-1, 1),
-            )
+                dos_target_train = train_utils.evaluate_spline(
+                    batch.splines[0].values, spline_positions, x_dos_aligned,
+                )
+            else:  # fixed reference
+                dos_target_train = batch.target_dos
+
             # Compute loss
             train_loss_batch = train_utils.t_get_mse(
                 dos_pred_train, dos_target_train, model._x_dos
@@ -331,60 +337,54 @@ def train():
             # Update parameters
             train_loss_batch.backward()
             optimizer.step()
-
             train_loss += train_loss_batch.item()
 
         # Validation step
         val_loss = torch.nan
         if epoch % ml_options["TRAIN"]["val_interval"] == 0:
-            dos_pred_val = []
-            dos_splines_val = []
-            energy_reference_val = []
-            for batch in val_loader:
-                # Make a prediction
-                dos_pred_val_batch = model(frames=batch.frames, descriptor=batch.descriptor)
-                
-                # Reduce over "center_type" and "atom"
-                dos_pred_val_batch = mts.sum_over_samples(dos_pred_val_batch, "center_type")
-                dos_pred_val_batch = mts.mean_over_samples(dos_pred_val_batch, "atom")
-                dos_pred_val_batch = dos_pred_val_batch[0].values
 
-                # Store various quantities from this batch
-                dos_pred_val.append(dos_pred_val_batch)
-                dos_splines_val.append(batch.splines[0].values)
-                energy_reference_val.append(batch.energy_reference)
+            # Make predictions and collate the relevant target data
+            with torch.no_grad():
+                dos_pred_val_grid = []
+                dos_targ_val_splined = []
+                dos_targ_val_grid = []
+                for batch in val_loader:
+                    # Predict the DOS with the descriptors of the validation set
+                    dos_pred_val_batch = model(frames=batch.frames, descriptor=batch.descriptor)
+                    
+                    # Reduce over "center_type" and "atom"
+                    dos_pred_val_batch = mts.sum_over_samples(dos_pred_val_batch, "center_type")
+                    dos_pred_val_batch = mts.mean_over_samples(dos_pred_val_batch, "atom")
+                    dos_pred_val_batch = dos_pred_val_batch[0].values
 
-            # Optimize the adaptive energy reference
-            if ml_options["USE_ADAPTIVE_REFERENCE"]:
-                val_loss, _ = train_utils.opt_mse_spline(
-                    torch.vstack(dos_pred_val),
+                    # Store prediction
+                    dos_pred_val_grid.append(dos_pred_val_batch)
+
+                    # If using an adaptive reference, store the splined target
+                    if ml_options["TARGET_DOS"]["adaptive_reference"]:
+                        dos_targ_val_splined.append(batch.splines[0].values)
+
+                    # Or if using a fixed reference, just store the target DOS
+                    else:
+                        dos_targ_val_grid.append(batch.target_dos)
+
+            # Now compute validation loss. If using an adaptive reference, the optimal
+            # shift needs to be found.
+            if ml_options["TARGET_DOS"]["adaptive_reference"] is True:
+                val_loss, _, _ = train_utils.opt_mse_spline(
+                    torch.vstack(dos_pred_val_grid),
                     model._x_dos,
-                    torch.vstack(dos_splines_val),
+                    torch.vstack(dos_targ_val_splined),
                     spline_positions,
                     n_epochs=50,
                 )
-
-            # Or used the fixed energy reference (either "Fermi" or "Hartree")
+            # Otherwise for a fixed reference, the stored DOS on the grid can just be used directly
             else:
                 with torch.no_grad():
-                    # Compute the target DOS via splines. TODO: for a fixed energy
-                    # reference, splines are not needed here. Instead the unshifted
-                    # target DOS can just be stored and used in validation loss
-                    # computation. For now, we use the slower version of evaluating the
-                    # spline for consistency with the adaptive energy reference
-                    # approach.
-                    dos_target_val = train_utils.evaluate_spline(
-                        torch.vstack(dos_splines_val),
-                        spline_positions,
-                        model._x_dos 
-                        + torch.concatenate(energy_reference_val).view(-1, 1),
-                    )
-
-                    # Compute the validation loss
                     val_loss = train_utils.t_get_mse(
-                        torch.vstack(dos_pred_val),
-                        dos_target_val,
-                        model._x_dos,
+                        predicted_dos=torch.vstack(dos_pred_val_grid),
+                        true_dos=torch.vstack(dos_targ_val_grid),
+                        x_dos=model._x_dos,
                     )
             scheduler.step(val_loss)
 
@@ -408,7 +408,8 @@ def train():
                 best_val_loss,
                 chkpt_dir=ml_options["CHKPT_DIR"](epoch),
             )
-            torch.save(train_alignment, join(ml_options["CHKPT_DIR"](epoch), "alignment.pt"))
+            if ml_options["TARGET_DOS"]["adaptive_reference"]:
+                torch.save(train_alignment, join(ml_options["CHKPT_DIR"](epoch), "alignment.pt"))
 
         # Save checkpoint if best validation loss
         if val_loss < best_val_loss:
@@ -420,7 +421,8 @@ def train():
                 val_loss,
                 chkpt_dir=ml_options["CHKPT_DIR"]("best"),
             )
-            torch.save(train_alignment, join(ml_options["CHKPT_DIR"]("best"), "alignment.pt"))
+            if ml_options["TARGET_DOS"]["adaptive_reference"]:
+                torch.save(train_alignment, join(ml_options["CHKPT_DIR"]("best"), "alignment.pt"))
 
         # Early stopping
         if lr <= ml_options["SCHEDULER_ARGS"]["min_lr"]:

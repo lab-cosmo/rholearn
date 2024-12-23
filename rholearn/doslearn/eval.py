@@ -23,34 +23,30 @@ def eval():
     t0_eval = time.time()
     dft_options, ml_options = _get_options()
 
-    # Get frame indices we have data for (or a subset if specified)
-    if dft_options.get("IDX_SUBSET") is not None:
-        frame_idxs = dft_options.get("IDX_SUBSET")
-    else:
-        frame_idxs = None
-    # Load all the frames
-    all_frames = system.read_frames_from_xyz(dft_options["XYZ"], frame_idxs)
-
-    if frame_idxs is None:
-        frame_idxs = list(range(len(all_frames)))
-
     # ===== Setup =====
     os.makedirs(join(ml_options["ML_DIR"], "outputs"), exist_ok=True)
     log_path = join(ml_options["ML_DIR"], "outputs/eval.log")
     io.log(log_path, "===== BEGIN =====")
     io.log(log_path, f"Working directory: {ml_options['ML_DIR']}")
 
-    # Load Spline Positions
-    spline_positions = train_utils.get_spline_positions(
-        min_energy=dft_options["DOS_SPLINES"]["min_energy"],
-        max_energy=dft_options["DOS_SPLINES"]["max_energy"]
-        - ml_options["TARGET_DOS"]["max_energy_buffer"],
-        interval=dft_options["DOS_SPLINES"]["interval"],
-    )
-
     # Random seed and dtype
     torch.manual_seed(ml_options["SEED"])
     torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
+
+    # Load all the frames
+    io.log(log_path, "Loading frames")
+    all_frames = system.read_frames_from_xyz(dft_options["XYZ"])
+
+    # Get frame indices we have data for (or a subset if specified)
+    if dft_options.get("IDX_SUBSET") is not None:
+        frame_idxs = dft_options.get("IDX_SUBSET")
+    else:
+        frame_idxs = list(range(len(all_frames)))
+
+    # Exclude some structures if specified
+    if dft_options["IDX_EXCLUDE"] is not None:
+        frame_idxs = [A for A in frame_idxs if A not in dft_options["IDX_EXCLUDE"]]
+
 
     # Get a callable to the evaluation subdirectory, parametrized by frame idx
     rebuild_dir = lambda frame_idx: join(  # noqa: E731
@@ -77,7 +73,7 @@ def eval():
         )
         for A in test_id
     ]
-    test_splines = torch.vstack([i.blocks(0)[0].values for i in test_splines_mts])
+    test_splines = torch.vstack([tensor[0].values for tensor in test_splines_mts])
     test_frames = [all_frames[A] for A in test_id]
 
     # ===== Load model and perform inference =====
@@ -87,47 +83,87 @@ def eval():
         f"Load model from checkpoint at epoch {ml_options['EVAL']['eval_epoch']}",
     )
     model = torch.load(
-        join(ml_options["CHKPT_DIR"](ml_options["EVAL"]["eval_epoch"]), "model.pt")
+        join(ml_options["CHKPT_DIR"](ml_options["EVAL"]["eval_epoch"]), "model.pt"),
+        weights_only=False,
     )
 
-    # Perform inference
+    # Perform inference to predict the DOS for each structure. Using model.predict gives
+    # a non-normalized DOS, i.e. where atomic contributions are summed, not averaged.
     io.log(log_path, "Perform inference")
     t0_infer = time.time()
-    test_preds_mts = model(frames=test_frames, frame_idxs=test_id)
-    test_preds = mts.sum_over_samples(test_preds_mts, "atom")
-    test_preds = test_preds[0].values
+    test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)
     dt_infer = time.time() - t0_infer
-    test_preds_numpy = test_preds.detach().numpy()
-    for index_A, A in enumerate(test_id):
-        os.makedirs(rebuild_dir(A), exist_ok=True)
-        np.save(
-            join(rebuild_dir(A), "prediction.npy"), test_preds_numpy[index_A]
-        )  # Save in each directory
     io.log(log_path, rho_train_utils.report_dt(dt_infer, "Model inference complete"))
     io.log(
         log_path, rho_train_utils.report_dt(dt_infer / len(test_id), "   or per frame")
     )
 
-    # Evaluate Test DOS RMSE
+    # Save predictions
+    for A, test_pred in zip(test_id, test_preds_mts):
+        os.makedirs(rebuild_dir(A), exist_ok=True)
+        np.save(
+            join(rebuild_dir(A), "prediction.npy"),
+            test_pred[0].values.detach().numpy()
+        )
+
+    # ===== Evaluate test DOS RMSE
+
     # Normalize DOS wrt system size for evaluation
-    test_preds_eval = mts.mean_over_samples(test_preds_mts, "atom")
+    test_preds_eval = model(frames=test_frames, frame_idxs=test_id)
+    test_preds_eval = mts.sum_over_samples(test_preds_eval, "center_type")
+    test_preds_eval = mts.mean_over_samples(test_preds_eval, "atom")
     test_preds_eval = test_preds_eval[0].values
-    # Obtain shift invariant MSE
-    test_MSE, shited_test_targets, test_shifts = train_utils.opt_mse_spline(
-        test_preds_eval,
-        model._x_dos,
-        test_splines,
-        spline_positions,
-        n_epochs=200,
+    
+    # Compute the spline positions
+    spline_positions = train_utils.get_spline_positions(
+        min_energy=dft_options["DOS_SPLINES"]["min_energy"],
+        max_energy=dft_options["DOS_SPLINES"]["max_energy"],
+        interval=dft_options["DOS_SPLINES"]["interval"],
     )
-    errors = (test_preds_eval - shited_test_targets) ** 2
-    samplewise_error = torch.trapezoid(errors, model._x_dos, dim=1).detach().numpy()
-    energywise_error = torch.mean(errors, dim=0).detach().numpy()
-    os.makedirs(rebuild_dir("Test"), exist_ok=True)
-    np.save(join(rebuild_dir("Test"), "test_MSEs.npy"), samplewise_error)
-    np.save(join(rebuild_dir("Test"), "test_eMSEs.npy"), energywise_error)
-    # Save Predictions and targets in each folder
+
+    # Obtain shift invariant MSE
+    if ml_options["TARGET_DOS"]["adaptive_reference"]:
+        test_mse, shited_test_targets, test_shifts = train_utils.opt_mse_spline(
+            test_preds_eval,
+            model._x_dos,
+            test_splines,
+            spline_positions,
+            n_epochs=200,
+        )
+        for index_A, A in enumerate(test_id):
+            np.save(
+                join(rebuild_dir(A), "target_shift.npy"),
+                test_shifts[index_A].detach().numpy(),
+            )
+
+    # Evaluate the target DOS from splines without optimizing the shift
+    else:
+        shited_test_targets = train_utils.evaluate_spline(
+            test_splines,
+            spline_positions,
+            model._x_dos + torch.zeros(len(test_id)).view(-1, 1),
+        )
+        test_mse = train_utils.t_get_rmse(
+            test_preds_eval, shited_test_targets, model._x_dos
+        )
+    io.log(log_path, f"Test RMSE: {torch.sqrt(test_mse):.5f}")
+    
+    
+    # Compute the MSE by sample
+    test_mse_samplewise = train_utils.t_get_rmse(
+        test_preds_eval, shited_test_targets, model._x_dos, samplewise=True,
+    )
+
+    # Save normalized predictions, targets, and MSE for each structure
     for index_A, A in enumerate(test_id):
+        np.save(
+            join(rebuild_dir(A), "mse.npy"),
+            test_mse_samplewise[index_A].detach().numpy(),
+        )
+        np.save(
+            join(rebuild_dir(A), "x_dos.npy"),
+            model._x_dos.detach().numpy(),
+        )
         np.save(
             join(rebuild_dir(A), "normalized_prediction.npy"),
             test_preds_eval[index_A].detach().numpy(),
@@ -136,12 +172,6 @@ def eval():
             join(rebuild_dir(A), "aligned_target.npy"),
             shited_test_targets[index_A].detach().numpy(),
         )
-        np.save(
-            join(rebuild_dir(A), "target_shift.npy"),
-            test_shifts[index_A].detach().numpy(),
-        )
-
-    io.log(log_path, f"Test RMSE: {torch.sqrt(test_MSE):.5f}")
 
     # ===== Finish =====
     dt_eval = time.time() - t0_eval

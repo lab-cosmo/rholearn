@@ -7,9 +7,23 @@ from chemfiles import Atom, Frame
 from featomic.torch import SoapPowerSpectrum
 from metatensor.torch.learn import ModuleMap
 
-from rholearn.rholearn import train_utils
+from rholearn.doslearn import train_utils
+from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.utils import system
 
+ALLOWED_ENERGY_REFS = [
+    "Fermi-fixed",
+    "Hartree-fixed",
+    "Fermi-adaptive",
+    "Hartree-adaptive",
+]
+
+class ExponentialLayer(torch.nn.Module):
+    """
+    Custom module to apply torch.exp
+    """
+    def forward(self, x):
+        return torch.exp(x)
 
 class SoapDosNet(torch.nn.Module):
     """
@@ -40,27 +54,27 @@ class SoapDosNet(torch.nn.Module):
         self._dtype = dtype
         self._device = device
 
-        assert energy_reference in [
-            "Fermi",
-            "Hartree",
-        ], "Energy reference must be either 'Fermi' or 'Hartree'."
+        assert energy_reference in ALLOWED_ENERGY_REFS, (
+            f"Energy reference must be in {ALLOWED_ENERGY_REFS}. Got: {energy_reference}"
+        )
         self._energy_reference = energy_reference
 
         # Define the target DOS energy grid
-        n_grid_points = int(
-            torch.ceil(torch.tensor(max_energy - min_energy) / interval)
+        self._x_dos = train_utils.get_spline_positions(
+            min_energy=self._min_energy,
+            max_energy=self._max_energy,
+            interval=self._interval,
         )
-        self._x_dos = min_energy + torch.arange(n_grid_points) * interval
 
         # Infer feature dimension
         dummy_descriptor = self._get_dummy_descriptor()
 
         # Get metadata
         in_keys = dummy_descriptor.keys
-        out_features = [n_grid_points for _ in in_keys]
+        out_features = [len(self._x_dos) for _ in in_keys]
         out_properties = [
             mts.Labels(
-                ["point"], torch.arange(n_grid_points, dtype=torch.int64).reshape(-1, 1)
+                ["point"], torch.arange(len(self._x_dos), dtype=torch.int64).reshape(-1, 1)
             )
             for _ in atom_types
         ]
@@ -92,6 +106,7 @@ class SoapDosNet(torch.nn.Module):
                         net.append(torch.nn.SiLU())
 
                     prev_width = width
+                net.append(ExponentialLayer())
                 nets.append(net)
 
         # Build a ModuleMap
@@ -126,7 +141,7 @@ class SoapDosNet(torch.nn.Module):
 
         # Re-index "system" metadata along samples axis
         if frame_idxs is not None:
-            soap = train_utils.reindex_tensormap(soap, frame_idxs)
+            soap = rho_train_utils.reindex_tensormap(soap, frame_idxs)
 
         return soap
 
@@ -154,11 +169,11 @@ class SoapDosNet(torch.nn.Module):
 
         # Re-index "system" metadata along samples axis
         if frame_idxs is not None:
-            prediction = train_utils.reindex_tensormap(prediction, frame_idxs)
+            prediction = rho_train_utils.reindex_tensormap(prediction, frame_idxs)
 
         # Split by frame
         if split_by_frame:
-            prediction = train_utils.split_tensormap_by_system(prediction, frame_idxs)
+            prediction = rho_train_utils.split_tensormap_by_system(prediction, frame_idxs)
 
         return prediction
 
@@ -177,12 +192,15 @@ class SoapDosNet(torch.nn.Module):
             split_by_frame=False,
         )
 
-        # Sum atomic contributions to get global DOS
+        # In the case of prediction we do not want a normalized DOS prediction, so sum
+        # atomic contributions. This is in contrast to what would typically be done in
+        # traning, whereby reduction over atoms is done by a mean, not a sum.
+        prediction = mts.sum_over_samples(prediction, "center_type")
         prediction = mts.sum_over_samples(prediction, "atom")
 
         # Re-index "system" metadata along samples axis and split by frame
-        prediction = train_utils.reindex_tensormap(prediction, frame_idxs)
-        prediction = train_utils.split_tensormap_by_system(prediction, frame_idxs)
+        prediction = rho_train_utils.reindex_tensormap(prediction, frame_idxs)
+        prediction = rho_train_utils.split_tensormap_by_system(prediction, frame_idxs)
 
         return prediction
 

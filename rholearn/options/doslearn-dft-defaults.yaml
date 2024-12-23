@@ -12,5 +12,16 @@ SCF:
 # To generate data for a subset of the structures in the XYZ file
 IDX_SUBSET: null
 
-# A unique ID for the data splining procedure
+# For excluding structures, i.e. that data generation may have failed for
+IDX_EXCLUDE: null
+
+# A unique ID for the generating target data
 RUN_ID: dos
+
+# Energy for computing splines, all in eV
+DOS_SPLINES:
+  energy_reference: Fermi
+  min_energy: null
+  max_energy: null
+  interval: null
+  sigma: null

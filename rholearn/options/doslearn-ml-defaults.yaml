@@ -32,8 +32,9 @@ USE_ADAPTIVE_REFERENCE: false
 
 # DOS parameters
 TARGET_DOS:
+  adaptive_reference: true  # whether or not to use an adaptive (learnable) energy reference
   max_energy_buffer: 10  # predict DOS grid 10 eV less than max spline energy
-  reference: Fermi  # or Hartree
+  standardize: false
 
 # For training the model
 TRAIN:
@@ -47,6 +48,7 @@ TRAIN:
   log_interval: 100  # epoch interval at which to log metrics
   checkpoint_interval: 100  # save model and optimizer state every x intervals
 
+# For model evaluation
 EVAL:
   eval_epoch: best
 

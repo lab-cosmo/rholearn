@@ -870,6 +870,7 @@ def spline_eigenenergies(
     min_energy: float,
     max_energy: float,
     interval: float,
+    energy_reference: float,
     dtype: Optional[torch.dtype] = torch.float64,
     save_dir: Optional[str] = None,
 ) -> torch.Tensor:
@@ -883,6 +884,9 @@ def spline_eigenenergies(
     # Store number of k-points and flatten eigenenergies
     n_kpts = len(energies)
     energies = torch.tensor(energies, dtype=dtype).flatten()
+
+    # Shift to the energy reference for this structure
+    energies -= energy_reference
 
     # Create energy grid
     n_grid_points = int(torch.ceil(torch.tensor(max_energy - min_energy) / interval))

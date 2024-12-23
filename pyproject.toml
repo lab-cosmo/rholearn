@@ -21,7 +21,7 @@ dependencies = [
     "chemfiles",
     "chemiscope",
     "metatensor[torch]",
-    --pre featomic-torch,
+    "featomic-torch >= 0.6.0.rc1",
     "vesin",
 
     # Extra dependencies

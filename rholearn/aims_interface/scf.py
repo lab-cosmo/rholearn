@@ -140,7 +140,7 @@ def _process_scf(model: str) -> None:
     )
     hpc.run_script(".", "sbatch " + fname)
 
-    if dft_options.get("DOS_SPLINES") is not None:
+    if dft_options["DOS_SPLINES"] is not None:
 
         for A in frame_idxs:
             os.makedirs(dft_options["PROCESSED_DIR"](A), exist_ok=True)
@@ -151,7 +151,6 @@ def _process_scf(model: str) -> None:
             'python3 -c "from rholearn.aims_interface import scf;'
             ' scf._spline_eigenvalues_for_frame(frame_idx="${ARRAY_IDX}");"'
         )
-        # Process the RI fit output for each frame
         fname = f"process-scf-doslearn-{hpc.timestamp()}.sh"
         hpc.write_python_sbatch_array(
             fname=fname,
@@ -173,19 +172,30 @@ def _spline_eigenvalues_for_frame(frame_idx: int) -> None:
     dft_options, _ = _get_options("doslearn")
 
     # Parse and save the Fermi energy
+    e_fermi = parser.parse_fermi_energy(dft_options["SCF_DIR"](frame_idx))
     torch.save(
-        parser.parse_fermi_energy(dft_options["SCF_DIR"](frame_idx)),
+        e_fermi,
         join(dft_options["PROCESSED_DIR"](frame_idx), "e_fermi.pt"),
     )
 
+    # Define an energy zero if requested
+    if dft_options["DOS_SPLINES"]["energy_reference"] == "Fermi":
+        energy_reference = e_fermi
+    else:
+        assert dft_options["DOS_SPLINES"]["energy_reference"] == "Hartree", (
+            "DOS_SPLINES['energy_reference'] must be either 'Fermi' or 'Hartree'"
+        )
+        energy_reference = 0.0  # by definition for the Hartree energy
+
     # Spline eigenenergies
-    parser.spline_eigenenergies(
+    spline = parser.spline_eigenenergies(
         aims_output_dir=dft_options["SCF_DIR"](frame_idx),
         frame_idx=frame_idx,
         sigma=dft_options["DOS_SPLINES"]["sigma"],
         min_energy=dft_options["DOS_SPLINES"]["min_energy"],
         max_energy=dft_options["DOS_SPLINES"]["max_energy"],
         interval=dft_options["DOS_SPLINES"]["interval"],
+        energy_reference=energy_reference,
         save_dir=dft_options["PROCESSED_DIR"](frame_idx),
     )
 
