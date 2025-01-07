@@ -157,4 +157,18 @@ For a more in-depth walkthrough of the functionality, see the following tutorial
   doi          = {10.5281/zenodo.13891847},
   url          = {https://doi.org/10.5281/zenodo.13891847}
 }
+
+@article{how_2024_adaptive,
+  author         = {How, Wei Bin and
+                    Chong, Sanggyu and
+                    Grasselli, Federico and
+                    Huguenin-Dumittan, Kevin K. and
+                    Ceriotti, Michele},
+  title          = {Adaptive energy reference for machine-learning models of the electronic density of states}, 
+  year           = 2024,
+  eprint         = 2407.01068,
+  archivePrefix  = {arXiv},
+  primaryClass   = {cond-mat.mtrl-sci},
+  url            = {https://arxiv.org/abs/2407.01068},
+}
 ```
