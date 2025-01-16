@@ -254,6 +254,7 @@ def coeff_vector_ndarray_to_tensormap(
     lmax: dict,
     nmax: dict,
     structure_idx: int,
+    energy_bin: int,
     tests: Optional[int] = 0,
     backend: str = "numpy",
 ) -> Union[metatensor.TensorMap, metatensor.torch.TensorMap]:
@@ -319,8 +320,8 @@ def coeff_vector_ndarray_to_tensormap(
                 ),
             ],
             properties=mts.Labels(
-                names=["n"],
-                values=np.arange(nmax[(symbol, o3_lambda)]).reshape(-1, 1),
+                names=["energy_bin", "n"],
+                values=np.array([[energy_bin, n] for n in np.arange(nmax[(symbol, o3_lambda)])]),
             ),
             values=np.ascontiguousarray(
                 np.concatenate([raw_block[atom_i] for atom_i in atom_idxs], axis=0)

@@ -74,7 +74,7 @@ class RhoModel(torch.nn.Module):
         descriptor_calculator: torch.nn.Module,
         architecture: Dict[str, List[dict]],
         target_basis: mts.Labels,
-        energy_bins: int,
+        energy_bins: List[int],
         dtype: torch.dtype = torch.float64,
         device: torch.device = "cpu",
         pretrain: bool = False,
@@ -289,9 +289,16 @@ class RhoModel(torch.nn.Module):
 
             for i, param in enumerate(block_model.parameters()):
                 if i == 0:  # weights
+                    coef = best_model.coef_
+                    if len(coef.shape) == 1:
+                        # Weights need reshaping
+                        coef = coef.reshape(
+                            len(self._out_properties[key_i]),
+                            len(self._in_properties[key_i]),
+                        )
                     param.data = torch.nn.Parameter(
                         torch.tensor(
-                            best_model.coef_,
+                            coef,
                             dtype=self._dtype,
                             device=self._device,
                         )

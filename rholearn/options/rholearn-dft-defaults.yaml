@@ -13,9 +13,10 @@ SCF:
 # For RI-fitting procedure
 RI:
   elsi_restart: read
-  ri_skip_scf: true
+  ri_skip_scf: false
   ri_density_restart: write
   ri_full_output: true
+  ri_ovlp_no_write: false
   ri_ovlp_write_triu: true
   default_max_l_prodbas: null
   default_prodbas_acc: 1e-5

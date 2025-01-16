@@ -7,15 +7,23 @@ contour plots (i.e. for use in STM image generation).
 """
 
 from os.path import join
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import cube_tools
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import py3Dmol
-from chemfiles import Atom, Frame
+from chemfiles import Atom, Frame, UnitCell
+
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.colors import Normalize
 from scipy.interpolate import CubicSpline
+from skimage.metrics import structural_similarity
+from skimage.metrics import mean_squared_error
+
+from rholearn.utils import ATOMIC_NUMBERS_TO_SYMBOLS
+from rholearn.utils.io import pickle_dict
 
 
 class RhoCube(cube_tools.cube):
@@ -27,7 +35,6 @@ class RhoCube(cube_tools.cube):
     ) -> None:
         super(RhoCube, self).__init__(file_path)
         self.file_path = file_path
-        self.frame = self.frame()
 
         # Expects that the cube lengths and origin are given in atomic units (i.e.
         # Bohr). Convert to SI units (i.e. Angstrom)
@@ -38,12 +45,17 @@ class RhoCube(cube_tools.cube):
             self.Z *= bohr_to_ang
             self.origin *= bohr_to_ang
 
+        self.frame = self.frame()
+
     def frame(self) -> Frame:
         """
         Builds an ASE atoms object from the atomic positions and chemical
         symbols in the cube file.
         """
         frame = Frame()
+        frame.cell = UnitCell(
+            np.vstack([self.X * self.NX, self.Y * self.NY, self.Z * self.NZ])
+        )
         for symbol, position in zip(self.atoms, self.atomsXYZ):
             frame.add_atom(Atom(name=symbol, type=symbol), position=position)
         return frame
@@ -116,57 +128,44 @@ class RhoCube(cube_tools.cube):
         the specified `tolerance`. Tiles the grid if specified and then transforms the
         coordinates to the physical space.
         """
-        # Define cell matrix for transformations
-        cell_matrix = np.array([self.X, self.Y, self.Z])
-        # Initialize the height map with NaN values
+        # Assuming cell_matrix is defined with each column as a vector for x, y, z
+        cell_matrix = np.array([self.X, self.Y, self.Z]).T  # Columns as x, y, z vectors
         height_map = np.full((self.NX, self.NY), np.nan)
 
-        # Compute the height map in grid coordinates
+        # Compute height map
         for i in range(self.NX):
             for j in range(self.NY):
                 z_grid = (np.arange(self.NZ) * self.Z[2]) + self.origin[2]
                 spliner = CubicSpline(z_grid, self.data[i, j, :])
-                z_grid_fine = np.linspace(
-                    z_grid.min(), z_grid.max(), self.NZ * grid_multiplier
-                )
-                match_idxs = np.where(
-                    np.abs(spliner(z_grid_fine) - isovalue) < tolerance
-                )[0]
+                z_grid_fine = np.linspace(z_grid.min(), z_grid.max(), self.NZ * grid_multiplier)
+                match_idxs = np.where(np.abs(spliner(z_grid_fine) - isovalue) < tolerance)[0]
                 if match_idxs.size > 0:
                     match_idx = match_idxs[np.argmax(z_grid_fine[match_idxs])]
                     z_height = z_grid_fine[match_idx]
-                    if (z_min is None or z_height >= z_min) and (
-                        z_max is None or z_height <= z_max
-                    ):
+                    if (z_min is None or z_height >= z_min) and (z_max is None or z_height <= z_max):
                         height_map[i, j] = z_height
 
-        # Check for tiling settings
         if xy_tiling is None:
             xy_tiling = [1, 1]
 
-        # Tile the height map
         height_map_tiled = np.tile(height_map, xy_tiling)
 
-        # Generate tiled indices to transform to physical coordinates
+        # Create indices for tiled map
         tiled_NX, tiled_NY = self.NX * xy_tiling[0], self.NY * xy_tiling[1]
-        X_indices_tiled, Y_indices_tiled = np.meshgrid(
-            np.arange(tiled_NX), np.arange(tiled_NY), indexing="ij"
-        )
-        Z_indices_tiled = np.full_like(
-            X_indices_tiled, fill_value=0
-        )  # Z is not used for tiling
+        X_indices_tiled, Y_indices_tiled = np.meshgrid(np.arange(tiled_NX), np.arange(tiled_NY), indexing="ij")
+        # No Z indices used, set all to zero (flat)
 
-        # Transform tiled indices to physical coordinates
-        tiled_grid_indices = np.stack(
-            [X_indices_tiled, Y_indices_tiled, Z_indices_tiled], axis=-1
-        )
-        tiled_physical_coords = np.einsum(
-            "ij,klj->kli", cell_matrix, tiled_grid_indices
-        )
+        # Manually apply transformations
+        # tiled_X = cell_matrix[0, 0] * X_indices_tiled + cell_matrix[0, 1] * Y_indices_tiled
+        # tiled_Y = cell_matrix[1, 0] * X_indices_tiled + cell_matrix[1, 1] * Y_indices_tiled
 
-        # Extract X and Y coordinates
-        tiled_X = tiled_physical_coords[..., 0]
-        tiled_Y = tiled_physical_coords[..., 1]
+        # Swapping matrix application to indices:
+        # tiled_X = cell_matrix[1, 0] * X_indices_tiled + cell_matrix[1, 1] * Y_indices_tiled
+        # tiled_Y = cell_matrix[0, 0] * X_indices_tiled + cell_matrix[0, 1] * Y_indices_tiled
+
+        # Another way of swapping indices application:
+        tiled_X = cell_matrix[0, 0] * Y_indices_tiled + cell_matrix[0, 1] * X_indices_tiled
+        tiled_Y = cell_matrix[1, 0] * Y_indices_tiled + cell_matrix[1, 1] * X_indices_tiled
 
         return tiled_X, tiled_Y, height_map_tiled
 
@@ -190,14 +189,15 @@ class RhoCube(cube_tools.cube):
 
 def plot_contour_ccm(
     cubes: List[RhoCube],
-    isovalue: float,
-    tolerance: float,
+    isovalues: Union[float, List[float]],
+    tolerances: Union[float, List[float]],
     grid_multiplier: int,
     levels: int,
     z_min: float = None,
     z_max: float = None,
     xy_tiling: List[int] = None,
     cmap: str = "viridis",
+    plot_atoms: bool = False,
     save_dir: str = None,
 ):
     """
@@ -206,55 +206,186 @@ def plot_contour_ccm(
     if isinstance(cubes, RhoCube):
         cubes = [cubes]
 
+    if isinstance(isovalues, float):
+        isovalues = [isovalues]
+    if isinstance(tolerances, float):
+        tolerances = [tolerances]
+    assert len(isovalues) == len(tolerances), (
+        "`isovalues` and `tolerances` must have the same length"
+    )
+    if xy_tiling is None:
+        xy_tiling = [1, 1]
+
     fig, axes = plt.subplots(
-        1,
+        len(isovalues) + 1 if plot_atoms else len(isovalues),
         len(cubes),
-        figsize=(5 * 1.5 * len(cubes), 5 * len(cubes)),
+        figsize=(10 * len(cubes), 5 * len(isovalues)),
         sharey=True,
         sharex=True,
     )
 
-    X, Y, Z = [], [], []
-    for q in cubes:
-        x, y, z = q.get_height_profile_map(
-            isovalue=isovalue,
-            tolerance=tolerance,
-            grid_multiplier=grid_multiplier,
-            z_min=z_min,
-            z_max=z_max,
-            xy_tiling=xy_tiling,
-        )
-        X.append(x)
-        Y.append(y)
-        Z.append(z)
+    if plot_atoms:  # plot the nuclear positions
+        for ax in axes[0, :]:
+            for atom_i, atom in enumerate(cubes[0].frame.atoms):
 
-    # Set the min and max contour values for consistent scale bar
-    _Z = np.array(Z).flatten()
-    _Z = _Z[~np.isnan(_Z)]
-    if z_min is None:
-        z_min = np.min(_Z)
-    if z_max is None:
-        z_max = np.max(_Z)
+                atom_type = int(atom.type)
+                position = cubes[0].frame.positions[atom_i]
 
-    # Plot the contour maps
-    for x, y, z, ax in zip(X, Y, Z, axes):
-        cs = ax.contourf(
-            x,
-            y,
-            z,
-            vmin=z_min,
-            vmax=z_max,
-            cmap=cmap,
-            levels=levels,
-        )
-        fig.colorbar(cs)
-        ax.set_aspect("equal")
-        ax.set_xlabel("x / Ang")
-        ax.set_ylabel("y / Ang")
-        ax.set_facecolor("black")
+                # Only plot atoms in the z range
+                if position[2] < z_min or position[2] > z_max:
+                    continue
 
+                # Inverse of the lattice vectors for converting Cartesian to fractional
+                lattice_vectors = cubes[0].frame.cell.matrix
+                lattice_inv = np.linalg.inv(lattice_vectors)
+
+                # Convert Cartesian to fractional coordinates
+                fractional_positions = np.dot(
+                    cubes[0].frame.cell.wrap(position) + np.sum(cubes[0].frame.cell.matrix / 2, axis=0),
+                    lattice_inv,
+                )
+
+                # Map fractional coordinates into the unit cell [0, 1)
+                fractional_positions %= 1.0
+
+                for x_tile in range(xy_tiling[0]):
+                    for y_tile in range(xy_tiling[1]):
+
+                        # Translate the fractional coordinates into the tiling
+                        frac_pos_tiled = np.copy(fractional_positions)
+                        frac_pos_tiled[0] += x_tile
+                        frac_pos_tiled[1] += y_tile
+            
+                        # Convert fractional coordinates back to Cartesian
+                        position = np.dot(frac_pos_tiled, lattice_vectors)
+                        
+                        # Write the atomic type annotation
+                        colors = {1: "white", 6: "gray", 7: "blue", 8: "red", 29: "green"}
+                        ax.annotate(
+                            ATOMIC_NUMBERS_TO_SYMBOLS[atom_type],
+                            xy=(position[0], position[1]),
+                            fontsize=5,
+                            color='black',
+                            ha='center',
+                            va='center',
+                            bbox=dict(boxstyle="circle,pad=0.2", edgecolor="black", facecolor=colors[atom_type])
+                        )
+
+    isovalue_range = range(1, len(isovalues) + 1) if plot_atoms else range(len(isovalues))
+    ssims = {
+        isovalue_i: {
+            Z_input_i: {} 
+            for Z_input_i in range(1, len(cubes))
+        } 
+        for isovalue_i in isovalue_range
+    }
+    mses = {
+        isovalue_i: {
+            Z_input_i: {} 
+            for Z_input_i in range(1, len(cubes))
+        } 
+        for isovalue_i in isovalue_range
+    }
+    for isovalue_i, isovalue, tolerance in zip(isovalue_range, isovalues, tolerances):
+
+        X, Y, Z = [], [], []
+        for q in cubes:
+            x, y, z = q.get_height_profile_map(
+                isovalue=isovalue,
+                tolerance=tolerance,
+                grid_multiplier=grid_multiplier,
+                z_min=z_min,
+                z_max=z_max,
+                xy_tiling=xy_tiling,
+            )
+            X.append(x)
+            Y.append(y)
+            Z.append(z)
+
+        # Set the min and max contour values for consistent scale bar
+        _Z = np.array(Z).flatten()
+        _Z = _Z[~np.isnan(_Z)]
+        if z_min is None:
+            z_min = np.min(_Z)
+        if z_max is None:
+            z_max = np.max(_Z)
+
+        # Define a normalization object with the desired z_min and z_max
+        norm = Normalize(vmin=z_min, vmax=z_max)
+
+        # Define levels explicitly to span the full range [z_min, z_max]
+        levels_grid = np.linspace(z_min, z_max, levels)
+
+        # Plot the contour maps
+        for ax_i, (x, y, z, ax) in enumerate(zip(X, Y, Z, axes[isovalue_i])):
+            cs = ax.contourf(
+                -x + np.abs(np.min(-x)),
+                -y + np.abs(np.min(-y)),
+                z,
+                vmin=z_min,
+                vmax=z_max,
+                cmap=cmap,
+                levels=levels_grid,
+                norm=norm,
+            )
+
+            # Adjust colorbar size and position
+            if ax_i == len(cubes) - 1:
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes("right", size="5%", pad=0.1)
+                fig.colorbar(
+                    cs,
+                    cax=cax,
+                    boundaries=np.linspace(z_min, z_max, levels),
+                    ticks=np.linspace(z_min, z_max, int((z_max - z_min) // 1) + 1),
+                    norm=norm,
+                )
+            
+            # Format
+            ax.set_facecolor("black")
+            if ax_i == 0:
+                ax.set_title(f"iso: {isovalue}")
+
+        # Compute structural similarity index
+        if len(cubes) > 1:
+            for Z_target_i in range(len(Z) - 1):
+                Z_target = np.nan_to_num(Z[Z_target_i], nan=0.0, posinf=0.0, neginf=0.0)
+
+                for Z_input_i in range(Z_target_i + 1, len(Z)):
+
+                    Z_input = np.nan_to_num(Z[Z_input_i], nan=0.0, posinf=0.0, neginf=0.0)
+                    ssims[isovalue_i][Z_input_i][Z_target_i] = structural_similarity(
+                        Z_target, Z_input, data_range=Z_target.max() - Z_target.min(),
+                    )
+                    # Don't plot MSE (for now)
+                    mses[isovalue_i][Z_input_i][Z_target_i] = mean_squared_error(Z_target, Z_input)
+            
+            # Annotate the axes titles with the errors
+            for target_i in range(len(Z) - 1):
+                ssim_i = ""
+                for input_i in range(target_i + 1, len(Z)):
+                    ssim_i += f"{input_i}: {ssims[isovalue_i][input_i][target_i]:.2f}, "
+
+                # Don't plot MSE (for now)
+                # mse_i = ""
+                # for i in range(ax_i, len(Z) - 1):
+                #     mse_i += f"vs {i}: {mses[isovalue_i][ax_i][i]:.2f}, "
+                axes[isovalue_i][input_i].set_title(f"SSIM: {ssim_i}")  #, MSE: {mse_i}")
+
+    [ax.set_xlabel("x / Å") for ax in axes[-1, :]]
+    [ax.set_ylabel("y / Å") for ax in axes[:, 0]]
+    [ax.set_aspect("equal") for ax in axes.flatten()]
+
+    # Reflect in the x-axis due to the way matplotlib plots contours
+    # plt.gca().invert_xaxis()
+
+    # Save plot and errors
     if save_dir is not None:
-        plt.savefig(join(save_dir, "cube_scatter_ccm.png"))
+        plt.savefig(join(save_dir, "cube_scatter_ccm.png"), bbox_inches="tight", dpi=300)
+        pickle_dict(
+            join(save_dir, f"image_errors.pickle"),
+            {"ssim": ssims, "mse": mses},
+        )
 
     return fig, axes
 
@@ -276,7 +407,7 @@ def plot_contour_chm(
     fig, axes = plt.subplots(
         1,
         len(cubes),
-        figsize=(5 * 1.5 * len(cubes), 5 * len(cubes)),
+        figsize=(15 * len(cubes), 10 * len(cubes)),
         sharey=True,
         sharex=True,
     )
@@ -295,14 +426,14 @@ def plot_contour_chm(
             cmap=cmap,
             levels=levels,
         )
-        fig.colorbar(cs)
+        ax.colorbar(cs)
         ax.set_aspect("equal")
-        ax.set_xlabel("x / Ang")
-        ax.set_ylabel("y / Ang")
+        ax.set_xlabel("x / Å")
+        ax.set_ylabel("y / Å")
         ax.set_facecolor("black")
 
     if save_dir is not None:
-        plt.savefig(join(save_dir, "cube_scatter_chm.png"))
+        plt.savefig(join(save_dir, "cube_scatter_chm.png"), bbox_inches="tight", dpi=300)
 
     return fig, axes
 
@@ -411,7 +542,7 @@ def contour_scatter_matrix(
 
             fig.colorbar(cs)
             ax.set_aspect("equal")
-            ax.set_xlabel("x / Ang")
-            ax.set_ylabel("y / Ang")
+            ax.set_xlabel("x / Å")
+            ax.set_ylabel("y / Å")
 
     return fig, axes

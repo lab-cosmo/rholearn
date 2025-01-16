@@ -10,11 +10,13 @@ from metatensor.torch.learn.data import DataLoader, group_and_join
 
 from rholearn.aims_interface import parser
 from rholearn.doslearn import train_utils
+from rholearn.doslearn.loss import L1Loss, L2Loss
 from rholearn.doslearn.model import SoapDosNet
 from rholearn.options import get_options
 from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.utils import io, system, utils
 
+VALID_LOSS_FNS  = {"L1": L1Loss, "L2": L2Loss}
 
 def train():
     """
@@ -107,6 +109,7 @@ def train():
                     dft_options["DOS_SPLINES"]["energy_reference"] 
                     + ("-adaptive" if ml_options["TARGET_DOS"]["adaptive_reference"] else "-fixed")
                 ),
+                model_per_center_type=ml_options["MODEL_PER_CENTER_TYPE"],
                 hidden_layer_widths=ml_options["HIDDEN_LAYER_WIDTHS"],
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=ml_options["TRAIN"]["device"],
@@ -250,6 +253,27 @@ def train():
         collate_fn=partial(group_and_join, join_kwargs=join_kwargs),
     )
 
+    # Set the target standardizer, if applicable
+    if ml_options["TARGET_DOS"]["standardize"] is True:
+        assert ml_options["TARGET_DOS"]["adaptive_reference"] is False, (
+            "cannot standardize targets if using an adaptive reference."
+        )
+        io.log(log_path, "Computing standardizer of the training targets")
+        # Compile target DOS data on the grid for the training set and compute the
+        # standardizer
+        standardizer = torch.std(
+            torch.vstack(
+                [
+                    batch.target_dos for batch in train_loader
+                ]
+            ),
+            axis=0,
+        )
+
+        # Store in the model. This will be a non-learnable transformation to the global
+        # DOS predictions.
+        model._set_standardizer(standardizer)
+
     # Val dataset
     io.log(log_path, f"Validation system ID: {all_subset_id[1]}")
     io.log(log_path, "Build validation dataset")
@@ -283,6 +307,12 @@ def train():
         interval=dft_options["DOS_SPLINES"]["interval"],
     )
 
+    # Initialize the loss function
+    assert ml_options["LOSS_FN"] in VALID_LOSS_FNS, (
+        f"'LOSS_FN' must be one of: {VALID_LOSS_FNS.keys()}"
+    )
+    loss_fn = VALID_LOSS_FNS[ml_options["LOSS_FN"]]()
+
     # Finish setup
     dt_setup = time.time() - t0_setup
     io.log(log_path, rho_train_utils.report_dt(dt_setup, "Setup complete"))
@@ -305,8 +335,8 @@ def train():
 
             # The model predicts local and by-species contributions to the global DOS.
             # Reduce over "center_type" and "atom" to get a global quantity.
-            dos_pred_train = mts.sum_over_samples(dos_pred_train, "center_type")
-            dos_pred_train = mts.mean_over_samples(dos_pred_train, "atom")
+            # dos_pred_train = mts.sum_over_samples(dos_pred_train, "center_type")
+            # dos_pred_train = mts.mean_over_samples(dos_pred_train, "atom")
             dos_pred_train = dos_pred_train[0].values
 
             # Get the target DDS for computing the loss. In the case of an adaptive reference, the
@@ -328,10 +358,10 @@ def train():
             else:  # fixed reference
                 dos_target_train = batch.target_dos
 
-            # Compute loss
-            train_loss_batch = train_utils.t_get_mse(
-                dos_pred_train, dos_target_train, model._x_dos
-            )
+            # Compute the integrated loss on the DOS of the training set
+            train_loss_batch = loss_fn(
+                input=dos_pred_train, target=dos_target_train, x_dos=model._x_dos
+            ).mean()
             train_loss_batch *= len(list(batch.sample_id)) / ml_options["N_TRAIN"]
 
             # Update parameters
@@ -353,40 +383,44 @@ def train():
                     dos_pred_val_batch = model(frames=batch.frames, descriptor=batch.descriptor)
                     
                     # Reduce over "center_type" and "atom"
-                    dos_pred_val_batch = mts.sum_over_samples(dos_pred_val_batch, "center_type")
-                    dos_pred_val_batch = mts.mean_over_samples(dos_pred_val_batch, "atom")
+                    # dos_pred_val_batch = mts.sum_over_samples(dos_pred_val_batch, "center_type")
+                    # dos_pred_val_batch = mts.mean_over_samples(dos_pred_val_batch, "atom")
                     dos_pred_val_batch = dos_pred_val_batch[0].values
 
                     # Store prediction
                     dos_pred_val_grid.append(dos_pred_val_batch)
 
                     # If using an adaptive reference, store the splined target
-                    if ml_options["TARGET_DOS"]["adaptive_reference"]:
+                    if ml_options["TARGET_DOS"]["adaptive_reference"] is True:
                         dos_targ_val_splined.append(batch.splines[0].values)
 
                     # Or if using a fixed reference, just store the target DOS
                     else:
                         dos_targ_val_grid.append(batch.target_dos)
+                
+                dos_pred_val_grid = torch.vstack(dos_pred_val_grid)
+                if ml_options["TARGET_DOS"]["adaptive_reference"] is False:
+                    dos_targ_val_grid = torch.vstack(dos_targ_val_grid)
 
-            # Now compute validation loss. If using an adaptive reference, the optimal
-            # shift needs to be found.
+            # If using an adaptive reference, the targets need to be shifted to their
+            # optimal alignment before the validation loss is computed
             if ml_options["TARGET_DOS"]["adaptive_reference"] is True:
-                val_loss, _, _ = train_utils.opt_mse_spline(
-                    torch.vstack(dos_pred_val_grid),
+                dos_targ_val_grid, _ = train_utils.optimise_target_shift(
+                    dos_pred_val_grid,
                     model._x_dos,
                     torch.vstack(dos_targ_val_splined),
                     spline_positions,
                     n_epochs=50,
+                    loss_fn=loss_fn,  # use a squared error for evaluating optimal shifts
                 )
-            # Otherwise for a fixed reference, the stored DOS on the grid can just be used directly
-            else:
-                with torch.no_grad():
-                    val_loss = train_utils.t_get_mse(
-                        predicted_dos=torch.vstack(dos_pred_val_grid),
-                        true_dos=torch.vstack(dos_targ_val_grid),
-                        x_dos=model._x_dos,
-                    )
-            scheduler.step(val_loss)
+
+            # Compute the integrated loss on the DOS of the training set and step the
+            # scheduler
+            with torch.no_grad():
+                val_loss = loss_fn(
+                    input=dos_pred_val_grid, target=dos_targ_val_grid, x_dos=model._x_dos,
+                ).mean()
+                scheduler.step(val_loss)
 
         # Log results on this epoch
         lr = scheduler._last_lr[0]

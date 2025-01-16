@@ -121,42 +121,17 @@ def evaluate_spline(
     )
     return value
 
-
-def t_get_mse(
-    predicted_dos: torch.Tensor, true_dos: torch.Tensor, x_dos: torch.Tensor, samplewise: bool = False,
-) -> torch.Tensor:
-    """
-    Computes the mean squared error between two Density of States.
-    """
-    if len(predicted_dos.size()) > 1:  # for a single sample
-        mse = (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=1))
-    else:  # multiple samples
-        mse = (torch.trapezoid((predicted_dos - true_dos) ** 2, x_dos, axis=0))
-
-    if samplewise:
-        return mse
-    return mse.mean()
-
-
-def t_get_rmse(
-    predicted_dos: torch.Tensor, true_dos: torch.Tensor, x_dos: torch.Tensor, samplewise: bool = False
-) -> torch.Tensor:
-    """
-    Computes the root mean squared error between two Density of States.
-    """
-    return torch.sqrt(t_get_mse(predicted_dos, true_dos, x_dos, samplewise))
-
-
-def opt_mse_spline(
+def optimise_target_shift(
     predicted_dos: torch.Tensor,
     x_dos: torch.Tensor,
     target_splines: torch.Tensor,
     spline_positions: torch.Tensor,
     n_epochs: int,
+    loss_fn: torch.nn.Module,
 ) -> Tuple[torch.Tensor]:
     """
-    MSE on optimal shift of energy axis. The optimal shift is obtained via grid search
-    followed by gradient descent.
+    Shifts the spline positions of the target DOS to lower the supplied ``loss_fn``. The optimal shift is
+    obtained via grid search followed by gradient descent.
     """
     # Perform an initial grid search to reduce the number of epochs needed for gradient
     # descent
@@ -168,7 +143,9 @@ def opt_mse_spline(
             shifted_target = evaluate_spline(
                 target_splines, spline_positions, x_dos + shifts.view(-1, 1)
             )
-            loss_i = ((predicted_dos - shifted_target) ** 2).mean(dim=1)
+            loss_i = loss_fn(
+                input=predicted_dos, target=shifted_target, x_dos=x_dos
+            )
             optim_search_mse.append(loss_i)
         optim_search_mse = torch.vstack(optim_search_mse)
         min_index = torch.argmin(optim_search_mse, dim=0)
@@ -183,7 +160,9 @@ def opt_mse_spline(
     shifted_target = evaluate_spline(
         target_splines, spline_positions, x_dos + shifts.view(-1, 1)
     ).detach()
-    each_loss = ((predicted_dos - shifted_target) ** 2).mean(dim=1).float()
+    each_loss = loss_fn(
+        input=predicted_dos, target=shifted_target, x_dos=x_dos
+    ).float()
     best_error = each_loss
 
     for _ in range(n_epochs):
@@ -196,7 +175,9 @@ def opt_mse_spline(
             shifted_target = evaluate_spline(
                 target_splines, spline_positions, x_dos + shifts.view(-1, 1)
             )
-            loss_i = ((predicted_dos - shifted_target) ** 2).mean()
+            loss_i = loss_fn(
+                input=predicted_dos, target=shifted_target, x_dos=x_dos
+            ).mean()
             loss_i.backward(gradient=torch.tensor(1), inputs=shifts)
             return loss_i
 
@@ -206,14 +187,16 @@ def opt_mse_spline(
             shifted_target = evaluate_spline(
                 target_splines, spline_positions, x_dos + shifts.view(-1, 1)
             ).detach()
-            each_loss = ((predicted_dos - shifted_target) ** 2).mean(dim=1).float()
+            each_loss = loss_fn(
+                input=predicted_dos, target=shifted_target, x_dos=x_dos
+            ).float()
             index = each_loss < best_error
             best_error[index] = each_loss[index].clone()
             best_shifts[index] = shifts[index].clone()
-    # Evaluate
+    
+    # Evaluate optimally-shifted splines and return
     optimal_shift = best_shifts
     shifted_target = evaluate_spline(
         target_splines, spline_positions, x_dos + optimal_shift.view(-1, 1)
     )
-    mse = t_get_mse(predicted_dos, shifted_target, x_dos)
-    return mse, shifted_target, optimal_shift
+    return shifted_target, optimal_shift

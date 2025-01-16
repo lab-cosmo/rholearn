@@ -7,10 +7,12 @@ import numpy as np
 import torch
 
 from rholearn.doslearn import train_utils
+from rholearn.doslearn.loss import L1Loss, L2Loss
 from rholearn.options import get_options
 from rholearn.rholearn import train_utils as rho_train_utils
 from rholearn.utils import io, system
 
+VALID_LOSS_FNS  = {"L1": L1Loss, "L2": L2Loss}
 
 def eval():
     """
@@ -87,6 +89,12 @@ def eval():
         weights_only=False,
     )
 
+    # Initialize the loss function
+    assert ml_options["LOSS_FN"] in VALID_LOSS_FNS, (
+        f"'LOSS_FN' must be one of: {VALID_LOSS_FNS.keys()}"
+    )
+    loss_fn = VALID_LOSS_FNS[ml_options["LOSS_FN"]]()
+
     # Perform inference to predict the DOS for each structure. Using model.predict gives
     # a non-normalized DOS, i.e. where atomic contributions are summed, not averaged.
     io.log(log_path, "Perform inference")
@@ -110,8 +118,6 @@ def eval():
 
     # Normalize DOS wrt system size for evaluation
     test_preds_eval = model(frames=test_frames, frame_idxs=test_id)
-    test_preds_eval = mts.sum_over_samples(test_preds_eval, "center_type")
-    test_preds_eval = mts.mean_over_samples(test_preds_eval, "atom")
     test_preds_eval = test_preds_eval[0].values
     
     # Compute the spline positions
@@ -123,12 +129,13 @@ def eval():
 
     # Obtain shift invariant MSE
     if ml_options["TARGET_DOS"]["adaptive_reference"]:
-        test_mse, shited_test_targets, test_shifts = train_utils.opt_mse_spline(
+        shited_test_targets, test_shifts = train_utils.optimise_target_shift(
             test_preds_eval,
             model._x_dos,
             test_splines,
             spline_positions,
             n_epochs=200,
+            loss_fn=loss_fn,
         )
         for index_A, A in enumerate(test_id):
             np.save(
@@ -143,22 +150,21 @@ def eval():
             spline_positions,
             model._x_dos + torch.zeros(len(test_id)).view(-1, 1),
         )
-        test_mse = train_utils.t_get_rmse(
-            test_preds_eval, shited_test_targets, model._x_dos
-        )
-    io.log(log_path, f"Test RMSE: {torch.sqrt(test_mse):.5f}")
-    
-    
-    # Compute the MSE by sample
-    test_mse_samplewise = train_utils.t_get_rmse(
-        test_preds_eval, shited_test_targets, model._x_dos, samplewise=True,
+
+    # Compute the integrated error on the test predictions over the DOS energy range.
+    # Here ``test_mse`` is a tensor of shape (n_structure,)
+    test_mse = loss_fn(
+        input=test_preds_eval, target=shited_test_targets, x_dos=model._x_dos
     )
+
+    # Compute and log the test RMSE
+    io.log(log_path, f"Test RMSE: {torch.sqrt(torch.mean(test_mse)):.5f}")
 
     # Save normalized predictions, targets, and MSE for each structure
     for index_A, A in enumerate(test_id):
         np.save(
             join(rebuild_dir(A), "mse.npy"),
-            test_mse_samplewise[index_A].detach().numpy(),
+            test_mse[index_A].detach().numpy(),
         )
         np.save(
             join(rebuild_dir(A), "x_dos.npy"),

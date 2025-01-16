@@ -95,6 +95,7 @@ TRAIN:
 EVAL:
   eval_epoch: best
   subset_size: null
+  subset_type: test
   target_type: [ri, scf]  # evaluate against "scf" or "ri" reference, or both
   generate_stm: false
 

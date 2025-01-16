@@ -1,5 +1,6 @@
 import os
 import time
+from functools import partial
 from os.path import exists, join
 from typing import List
 
@@ -39,8 +40,10 @@ def eval():
     torch.set_default_dtype(getattr(torch, ml_options["TRAIN"]["dtype"]))
 
     # Get a callable to the evaluation subdirectory, parametrized by frame idx
-    rebuild_dir = lambda frame_idx: join(  # noqa: E731
-        ml_options["EVAL_DIR"](ml_options["EVAL"]["eval_epoch"]), f"{frame_idx}"
+    rebuild_dir = lambda frame_idx, energy_bin: join(  # noqa: E731
+        ml_options["EVAL_DIR"](ml_options["EVAL"]["eval_epoch"]),
+        f"{frame_idx}",
+        f"e_{energy_bin}",
     )
 
     # Load all the frames
@@ -61,21 +64,30 @@ def eval():
 
     # ===== Get the test data =====
 
-    io.log(log_path, "Get the test IDs and frames")
-    _, _, test_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
+    io.log(log_path, f"Performing model evaluation on data subset: {ml_options['EVAL']['subset_type']}")
+    io.log(log_path, "Getting the evaluation structure IDs and frames")
+    all_subset_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
         frame_idxs=frame_idxs,
         n_train=ml_options["N_TRAIN"],
         n_val=ml_options["N_VAL"],
         n_test=ml_options["N_TEST"],
         seed=ml_options["SEED"],
     )
+    if ml_options['EVAL']['subset_type'] == "train":
+        eval_id = all_subset_id[0]
+    elif ml_options['EVAL']['subset_type'] == "val":
+        eval_id = all_subset_id[1]
+    elif ml_options['EVAL']['subset_type'] == "test":
+        eval_id = all_subset_id[2]
+    else:
+        raise ValueError(f"Invalid subset type: {ml_options['EVAL']['subset_type']}")
 
     # Now take a subset of the test IDs, if applicable
     if ml_options["EVAL"]["subset_size"] is not None:
-        test_id = test_id[: ml_options["EVAL"]["subset_size"]]
+        eval_id = eval_id[: ml_options["EVAL"]["subset_size"]]
 
-    io.log(log_path, f"    Test system ID: {test_id}")
-    test_frames = [all_frames[A] for A in test_id]
+    io.log(log_path, f"    Evaluation system ID: {eval_id}")
+    test_frames = [all_frames[A] for A in eval_id]
 
     # ===== Load model and perform inference =====
 
@@ -89,7 +101,11 @@ def eval():
     )
 
     # Check that evaluation hasn't already happened
-    all_aims_outs = [join(rebuild_dir(A), "aims.out") for A in test_id]
+    all_aims_outs = [
+        join(rebuild_dir(A, energy_bin), "aims.out")
+        for A in eval_id
+        for energy_bin in model._energy_bins
+    ]
     if all([exists(aims_out) for aims_out in all_aims_outs]):
         msg = (
             "Rebuild calculations have already been run for this model."
@@ -103,49 +119,62 @@ def eval():
         # Perform inference
         io.log(log_path, "Perform inference")
         t0_infer = time.time()
-        test_preds_mts = model.predict(frames=test_frames, frame_idxs=test_id)
+        
+        # model.predict gives a list of per-structure predictions
+        test_preds_mts = model.predict(frames=test_frames, frame_idxs=eval_id)
         dt_infer = time.time() - t0_infer
         io.log(
             log_path,
             train_utils.report_dt(dt_infer, "Model inference (on basis) complete"),
         )
         io.log(
-            log_path, train_utils.report_dt(dt_infer / len(test_id), "    or per frame")
+            log_path, train_utils.report_dt(dt_infer / len(eval_id), "    or per frame")
         )
 
         # ===== Rebuild fields =====
         io.log(log_path, "Rebuild real-space field(s) in FHI-aims")
 
-        # Convert predicted coefficients to flat numpy arrays
+        # Retype frames if applicable
         if model._descriptor_calculator._masked_system_type is not None:
             test_frames = mask.retype_frame(
                 test_frames,
                 model._descriptor_calculator._masked_system_type,
                 **model._descriptor_calculator._mask_kwargs,
             )
-        test_preds_numpy = [
-            convert.coeff_vector_blocks_to_flat(
-                frame, coeff_vector, basis_set=model._target_basis
-            )
-            for frame, coeff_vector in zip(test_frames, test_preds_mts)
-        ]
 
-        # Run rebuild routine
+        # Split the predictions by energy bin, convert predicted coefficients to flat
+        # numpy arrays, and rebuild fields
         t0_build = time.time()
-        ri_rebuild.rebuild_field(
-            frame_idxs=test_id,
-            frames=test_frames,
-            coefficients=test_preds_numpy,
-            rebuild_dir=rebuild_dir,
-            aims_command=dft_options["AIMS_COMMAND"],
-            base_settings=dft_options["BASE_AIMS"],
-            rebuild_settings=dft_options["REBUILD"],
-            cube_settings=dft_options["CUBE"],
-            species_defaults=dft_options["SPECIES_DEFAULTS"],
-            slurm_params=hpc_options["SLURM_PARAMS"],
-            load_modules=hpc_options["LOAD_MODULES"],
-            export_vars=hpc_options["EXPORT_VARIABLES"],
-        )
+        test_preds_mts = [
+            train_utils.slice_by_energy_bin(tensor, model._energy_bins)
+            for tensor in test_preds_mts
+        ]
+        for energy_bin in model._energy_bins:
+            test_preds_numpy = [
+                convert.coeff_vector_blocks_to_flat(
+                    frame, coeff_vector, basis_set=model._target_basis
+                )
+                for frame, coeff_vector in zip(
+                    test_frames, 
+                    [t[energy_bin] for t in test_preds_mts]
+                )
+            ]
+
+            # Run rebuild routine
+            ri_rebuild.rebuild_field(
+                frame_idxs=eval_id,
+                frames=test_frames,
+                coefficients=test_preds_numpy,
+                rebuild_dir=partial(rebuild_dir, energy_bin=energy_bin),
+                aims_command=dft_options["AIMS_COMMAND"],
+                base_settings=dft_options["BASE_AIMS"],
+                rebuild_settings=dft_options["REBUILD"],
+                cube_settings=dft_options["CUBE"],
+                species_defaults=dft_options["SPECIES_DEFAULTS"],
+                slurm_params=hpc_options["SLURM_PARAMS"],
+                load_modules=hpc_options["LOAD_MODULES"],
+                export_vars=hpc_options["EXPORT_VARIABLES"],
+            )
 
         # Wait for FHI-aims rebuild(s) to finish
         io.log(log_path, "Waiting for FHI-aims rebuild calculation(s) to finish...")
@@ -180,76 +209,78 @@ def eval():
             io.log(log_path, "Evaluting errors on active region coordinates only")
 
         nmaes = {t: [] for t in target_types}
-        for A in test_id:
-            # Load grid and predicted field
-            grid = np.load(join(dft_options["RI_DIR"](A), "partition_tab.npy"))
-            rho_ml = np.loadtxt(join(rebuild_dir(A), "rho_rebuilt_ri.out"))
+        for A in eval_id:
+            for energy_bin in model._energy_bins:
+                # Load grid and predicted field
+                grid = np.load(join(dft_options["RI_DIR"](A, energy_bin), "partition_tab.npy"))
+                rho_ml = np.loadtxt(join(rebuild_dir(A, energy_bin), "rho_rebuilt_ri.out"))
 
-            # Check grid in ML dir is consistent
-            _tmp_grid = np.loadtxt(join(rebuild_dir(A), "partition_tab.out"))
-            assert np.all(grid == _tmp_grid)
-            assert np.all(grid[:, :3] == rho_ml[:, :3])
-            rho_ml = rho_ml[:, 3]
-
-            # Build a coordinate mask, if applicable
-            if model._descriptor_calculator._masked_system_type is not None:
-                grid_mask = mask.get_point_indices_by_region(
-                    points=grid[:, :3],
-                    masked_system_type=(
-                        model._descriptor_calculator._masked_system_type
-                    ),
-                    region="active",
-                    **model._descriptor_calculator._mask_kwargs,
-                )
-                rho_ml = rho_ml[grid_mask]
-                grid = grid[grid_mask]
-
-            # Load each reference field - either SCF or RI
-            for target_type in target_types:
-                if target_type == "scf":
-                    rho_ref = np.load(join(dft_options["RI_DIR"](A), "rho_scf.npy"))
-                else:
-                    assert target_type == "ri"
-                    rho_ref = np.load(
-                        join(dft_options["RI_DIR"](A), "rho_rebuilt_ri.npy")
-                    )
+                # Check grid in ML dir is consistent
+                _tmp_grid = np.loadtxt(join(rebuild_dir(A, energy_bin), "partition_tab.out"))
+                assert np.all(grid == _tmp_grid)
+                assert np.all(grid[:, :3] == rho_ml[:, :3])
+                rho_ml = rho_ml[:, 3]
 
                 # Build a coordinate mask, if applicable
                 if model._descriptor_calculator._masked_system_type is not None:
-                    rho_ref = rho_ref[grid_mask]
+                    grid_mask = mask.get_point_indices_by_region(
+                        points=grid[:, :3],
+                        masked_system_type=(
+                            model._descriptor_calculator._masked_system_type
+                        ),
+                        region="active",
+                        **model._descriptor_calculator._mask_kwargs,
+                    )
+                    rho_ml = rho_ml[grid_mask]
+                    grid = grid[grid_mask]
 
-                # Get the MAE and normalization
-                abs_error, norm = fields.field_absolute_error(
-                    input=rho_ml,
-                    target=rho_ref,
-                    grid=grid,
-                )
-                nmae = 100 * abs_error / norm
-                nmaes[target_type].append(nmae)
+                # Load each reference field - SCF and/or RI
+                for target_type in target_types:
+                    if target_type == "scf":
+                        rho_ref = np.load(join(dft_options["RI_DIR"](A, energy_bin), "rho_scf.npy"))
+                    else:
+                        assert target_type == "ri"
+                        rho_ref = np.load(
+                            join(dft_options["RI_DIR"](A, energy_bin), "rho_rebuilt_ri.npy")
+                        )
 
-                # Also compute the squared error
-                squared_error, norm = fields.field_squared_error(
-                    input=rho_ml,
-                    target=rho_ref,
-                    grid=grid,
-                )
+                    # Build a coordinate mask, if applicable
+                    if model._descriptor_calculator._masked_system_type is not None:
+                        rho_ref = rho_ref[grid_mask]
 
-                # Log and save the results
-                io.log(
-                    log_path,
-                    f"system {A} target {target_type} abs_error {abs_error:.5f}"
-                    f" norm {norm:.5f} nmae {nmae:.5f}"
-                    f" squared_error {squared_error:.5f}",
-                )
-                np.savez(
-                    join(rebuild_dir(A), f"error_{target_type}.npz"),
-                    abs_error=abs_error,
-                    norm=norm,
-                    nmae=nmae,
-                    squared_error=squared_error,
-                )
+                    # Get the MAE and normalization
+                    abs_error, norm = fields.field_absolute_error(
+                        input=rho_ml,
+                        target=rho_ref,
+                        grid=grid,
+                    )
+                    nmae = 100 * abs_error / norm
+                    nmaes[target_type].append(nmae)
 
-        io.log(log_path, "Mean % NMAE per structure:")
+                    # Also compute the squared error
+                    squared_error, norm = fields.field_squared_error(
+                        input=rho_ml,
+                        target=rho_ref,
+                        grid=grid,
+                    )
+
+                    # Log and save the results
+                    io.log(
+                        log_path,
+                        f"system {A} energy_bin {energy_bin} target {target_type}"
+                        f" abs_error {abs_error:.5f}"
+                        f" norm {norm:.5f} nmae {nmae:.5f}"
+                        f" squared_error {squared_error:.5f}",
+                    )
+                    np.savez(
+                        join(rebuild_dir(A, energy_bin), f"error_{target_type}.npz"),
+                        abs_error=abs_error,
+                        norm=norm,
+                        nmae=nmae,
+                        squared_error=squared_error,
+                    )
+
+        io.log(log_path, "Mean % NMAE per structure per energy bin:")
         for target_type in nmaes.keys():
             io.log(
                 log_path,
@@ -263,40 +294,41 @@ def eval():
         t0_stm = time.time()
         io.log(log_path, "Generating STM images")
 
-        for A in test_id:
-            io.log(log_path, f"    Structure: {A}")
-            # Load the SCF, RI, and ML cube files
-            q_scf = cube.RhoCube(
-                join(dft_options["RI_DIR"](A), "cube_001_total_density.cube")
-            )
-            q_ri = cube.RhoCube(
-                join(dft_options["RI_DIR"](A), "cube_002_ri_density.cube")
-            )
-            q_ml = cube.RhoCube(join(rebuild_dir(A), "cube_001_ri_density.cube"))
-
-            # Plot the STM scatter
-            if dft_options["STM"]["mode"] == "ccm":
-
-                fig, ax = cube.plot_contour_ccm(
-                    cubes=[q_scf, q_ri, q_ml],
-                    save_dir=rebuild_dir(A),
-                    **dft_options["STM"]["options"],
+        for A in eval_id:
+            for energy_bin in model._energy_bins:
+                io.log(log_path, f"    Structure: {A}, Energy bin: {energy_bin}")
+                # Load the SCF, RI, and ML cube files
+                q_scf = cube.RhoCube(
+                    join(dft_options["RI_DIR"](A, energy_bin), "cube_001_total_density.cube")
                 )
-
-            else:
-
-                assert dft_options["STM"]["mode"] == "chm"
-                fig, ax = cube.plot_contour_chm(
-                    cubes=[q_scf, q_ri, q_ml],
-                    save_dir=rebuild_dir(A),
-                    **dft_options["STM"]["options"],
+                q_ri = cube.RhoCube(
+                    join(dft_options["RI_DIR"](A, energy_bin), "cube_002_ri_density.cube")
                 )
-            matplotlib.pyplot.close()
+                q_ml = cube.RhoCube(join(rebuild_dir(A, energy_bin), "cube_001_ri_density.cube"))
+
+                # Plot the STM scatter
+                if dft_options["STM"]["mode"] == "ccm":
+
+                    fig, ax = cube.plot_contour_ccm(
+                        cubes=[q_scf, q_ri, q_ml],
+                        save_dir=rebuild_dir(A, energy_bin),
+                        **dft_options["STM"]["options"],
+                    )
+
+                else:
+
+                    assert dft_options["STM"]["mode"] == "chm"
+                    fig, ax = cube.plot_contour_chm(
+                        cubes=[q_scf, q_ri, q_ml],
+                        save_dir=rebuild_dir(A, energy_bin),
+                        **dft_options["STM"]["options"],
+                    )
+                matplotlib.pyplot.close()
 
         dt_stm = time.time() - t0_stm
         io.log(log_path, train_utils.report_dt(dt_stm, "STM image generation complete"))
         io.log(
-            log_path, train_utils.report_dt(dt_stm / len(test_id), "    or per frame")
+            log_path, train_utils.report_dt(dt_stm / len(eval_id), "    or per frame")
         )
 
     # ===== Report eval timings =====
@@ -318,11 +350,11 @@ def _get_options():
     dft_options["SCF_DIR"] = lambda frame_idx: join(
         dft_options["DATA_DIR"], "raw", f"{frame_idx}"
     )
-    dft_options["RI_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"]
+    dft_options["RI_DIR"] = lambda frame_idx, energy_bin: join(
+        dft_options["DATA_DIR"], "raw", f"{frame_idx}", dft_options["RUN_ID"], f"e_{energy_bin}"
     )
-    dft_options["PROCESSED_DIR"] = lambda frame_idx: join(
-        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"]
+    dft_options["PROCESSED_DIR"] = lambda frame_idx, energy_bin: join(
+        dft_options["DATA_DIR"], "processed", f"{frame_idx}", dft_options["RUN_ID"], f"e_{energy_bin}"
     )
     ml_options["ML_DIR"] = os.getcwd()
     ml_options["CHKPT_DIR"] = train_utils.create_subdir(os.getcwd(), "checkpoint")

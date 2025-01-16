@@ -4,6 +4,7 @@ For converging SCF calculations for a given system in FHI-aims.
 
 import os
 import shutil
+import sys
 from os.path import exists, join
 
 import torch
@@ -41,7 +42,11 @@ def _run_scf(model: str) -> None:
     """
 
     # Get the DFT and HPC options
-    dft_options, hpc_options = _get_options(model)
+    if len(sys.argv) == 1:
+        run_id = None
+    else:
+        run_id = sys.argv[1]
+    dft_options, hpc_options = _get_options(model, run_id)
 
     # Get the frames and indices
     frames = system.read_frames_from_xyz(dft_options["XYZ"])
@@ -105,8 +110,12 @@ def _process_scf(model: str) -> None:
     ``model`` is either "rholearn" or "doslearn".
     """
 
-    # Set the DFT settings globally
-    dft_options, hpc_options = _get_options(model)
+   # Get the DFT and HPC options
+    if len(sys.argv) == 1:
+        run_id = None
+    else:
+        run_id = sys.argv[1]
+    dft_options, hpc_options = _get_options(model, run_id)
 
     # Get the frames and indices
     frames = system.read_frames_from_xyz(dft_options["XYZ"])
@@ -140,7 +149,7 @@ def _process_scf(model: str) -> None:
     )
     hpc.run_script(".", "sbatch " + fname)
 
-    if dft_options["DOS_SPLINES"] is not None:
+    if dft_options.get("DOS_SPLINES") is not None:
 
         for A in frame_idxs:
             os.makedirs(dft_options["PROCESSED_DIR"](A), exist_ok=True)
@@ -168,8 +177,12 @@ def _spline_eigenvalues_for_frame(frame_idx: int) -> None:
     TensorMap objects to the processed data directory.
     """
 
-    # Set the DFT settings globally
-    dft_options, _ = _get_options("doslearn")
+    # Get the DFT options
+    if len(sys.argv) == 1:
+        run_id = None
+    else:
+        run_id = sys.argv[1]
+    dft_options, _ = _get_options("doslearn", run_id)
 
     # Parse and save the Fermi energy
     e_fermi = parser.parse_fermi_energy(dft_options["SCF_DIR"](frame_idx))
@@ -200,12 +213,12 @@ def _spline_eigenvalues_for_frame(frame_idx: int) -> None:
     )
 
 
-def _get_options(model: str) -> None:
+def _get_options(model: str, run_id: str = None) -> None:
     """
     Gets the DFT and HPC options. Ensures the defaults are set first and then
     overwritten with user settings.
     """
-    dft_options = get_options("dft", model)
+    dft_options = get_options("dft", model, run_id)
     hpc_options = get_options("hpc")
 
     # Set some extra directories

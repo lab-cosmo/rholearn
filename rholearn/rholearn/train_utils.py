@@ -75,9 +75,10 @@ def load_and_process_overlap(
         - Sparsifying by removing overlaps smaller than a threshold
         - Masking by atom types
     """
-    # Load overlap from disk
+    # Load overlap from disk. This is only written from the first energy bin by default
+    # and is the same for all energy bins due to consistent basis set definitions.
     overlap = load_tensormap_to_torch(
-        join(load_dir(frame_idx, 0), "ri_ovlp.npz"), dtype=dtype, device=device
+        join(load_dir(frame_idx, energy_bin=0), "ri_ovlp.npz"), dtype=dtype, device=device
     )
 
     # Drop empty blocks that may be present
@@ -274,7 +275,7 @@ def center_types_to_descriptor_basis_in_properties(
 def target_basis_set_to_out_properties(
     in_keys: mts.Labels,
     target_basis: mts.Labels,
-    energy_bins: int,
+    energy_bins: List[int],
 ) -> List[mts.Labels]:
     """
     Converts the basis set definition to a list of Labels objects corresponding to the
@@ -301,7 +302,7 @@ def target_basis_set_to_out_properties(
                 values=torch.tensor(
                     [
                         [energy, radial]
-                        for energy in torch.arange(energy_bins)
+                        for energy in energy_bins
                         for radial in torch.arange(nmax)
                     ],
                     dtype=torch.int64,
@@ -309,6 +310,23 @@ def target_basis_set_to_out_properties(
             )
         )
     return out_properties
+
+def get_energy_bins(
+    min_energy: float, max_energy: float, interval: float
+) -> List[float]:
+
+    assert min_energy < max_energy, "`min_energy` must be less than `max_energy`"
+    assert interval > 0, "interval must be greater than zero"
+    assert np.isclose(((max_energy - min_energy) / interval) % 1, 0), (
+        "There must be an integer multiple of bins in the energy range"
+    )
+    # Generate bin edges
+    edges = np.arange(min_energy, max_energy + interval, interval)
+    
+    # Calculate bin centers
+    bin_centers = edges[:-1] + (interval / 2)
+    
+    return bin_centers.tolist()
 
 
 def get_dataset(
@@ -319,7 +337,7 @@ def get_dataset(
     load_dir: Callable,
     overlap_cutoff: Optional[float],
     overlap_threshold: Optional[float],
-    energy_bins: Optional[int],
+    energy_bins: List[int],
     dtype: Optional[torch.dtype],
     device: Optional[str],
     log_path: str,
@@ -353,14 +371,14 @@ def get_dataset(
         # Load
         io.log(log_path, "    Loading target coeffs")
         target_c = [
-            mts.join(
+            mts.join(  # join for each energy bin
                 [
                     load_tensormap_to_torch(
                         join(load_dir(A, energy_bin), "ri_coeffs.npz"),
                         dtype=dtype,
                         device=device,
                     )
-                    for energy_bin in range(energy_bins)
+                    for energy_bin in energy_bins
                 ],
                 axis="properties",
                 remove_tensor_name=True,
@@ -381,8 +399,17 @@ def get_dataset(
         # Load
         io.log(log_path, "    Loading target projs")
         target_w = [
-            load_tensormap_to_torch(
-                join(load_dir(A), "ri_projs.npz"), dtype=dtype, device=device
+            mts.join(  # join for each energy bin
+                [
+                    load_tensormap_to_torch(
+                        join(load_dir(A, energy_bin), "ri_projs.npz"),
+                        dtype=dtype,
+                        device=device,
+                    )
+                    for energy_bin in energy_bins
+                ],
+                axis="properties",
+                remove_tensor_name=True,
             )
             for A in frame_idxs
         ]
@@ -670,8 +697,6 @@ def epoch_step(
                 check_metadata=check_metadata,
             )
             input_c = convert.coeff_vector_to_sparse_by_center_type(input_c, "torch")
-            # mts.save("input_c.npz", input_c)
-            # mts.save("target_c.npz", batch.target_c)
 
             batch_loss = 0
             for input_c, target_c, target_w in zip(
@@ -789,15 +814,17 @@ def save_checkpoint(
     torch.save(val_loss, join(chkpt_dir, "val_loss.pt"))
 
 
-def slice_by_energy_bin(tensor: Optional[mts.TensorMap], energy_bins: int) -> List[mts.TensorMap]:
+def slice_by_energy_bin(
+    tensor: Optional[mts.TensorMap], energy_bins: List[int]
+) -> List[mts.TensorMap]:
     """
     Slices by "energy_bin" property dimension
     """
     if tensor is None:
-        return [None] * energy_bins
+        return [None] * len(energy_bins)
 
     sliced_tensors = []
-    for energy_bin in range(energy_bins):
+    for energy_bin in energy_bins:
         sliced_tensor = mts.slice(
             tensor,
             "properties",

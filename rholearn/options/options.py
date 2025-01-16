@@ -1,11 +1,11 @@
-from os.path import dirname, join, realpath
+from os.path import dirname, exists, join, realpath
 
 import yaml
 
 DIR_PATH = dirname(realpath(__file__))
 
 
-def get_options(options_type: str, model: str = None):
+def get_options(options_type: str, model: str = None, run_id: str = None):
     """
     Load the user options of type ``options_type`` "dft", "ml", "hpc" from the
     {options_type}-options.yaml file and override the corresponding DFT defaults.
@@ -35,10 +35,19 @@ def get_options(options_type: str, model: str = None):
     else:
         defaults = get_defaults(options_type, model)
 
-    # Now update with user settings
-    with open(f"{options_type}-options.yaml", "r") as f:
+    # Load the user options
+    if run_id is None:
+        run_id = ""
+    else:
+        run_id = f"-{run_id}"
+    file_path = f"{options_type}-options{run_id}.yaml"
+
+    if not exists(file_path):
+        raise FileNotFoundError(f"User options file {file_path} not found.")
+    with open(file_path, "r") as f:
         user = yaml.safe_load(f)
 
+    # Now update options with user options
     return update_options(defaults, user)
 
 

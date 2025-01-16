@@ -25,6 +25,7 @@ SPHERICAL_EXPANSION_HYPERS:
       max_radial: 7
 
 # NN architecture
+MODEL_PER_CENTER_TYPE: false
 HIDDEN_LAYER_WIDTHS: null  # null for linear model
 
 # Learn an adaptive energy reference
@@ -35,6 +36,9 @@ TARGET_DOS:
   adaptive_reference: true  # whether or not to use an adaptive (learnable) energy reference
   max_energy_buffer: 10  # predict DOS grid 10 eV less than max spline energy
   standardize: false
+
+# Loss function
+LOSS_FN: L2
 
 # For training the model
 TRAIN:

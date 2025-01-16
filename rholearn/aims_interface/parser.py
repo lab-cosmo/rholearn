@@ -548,17 +548,24 @@ def load_ovlp_matrix_to_square_matrix_numpy(
     triangular part of the full matrix.
     """
 
-    # Read the overlap and ensure a correct dimension. Currently it is a flat vector
-    # representing the triangular matrix, of length ((n^2 + n) / 2), where `n` is the
-    # length of the corresponding coefficient vector.
-    # Load to numpy
+    # Read the overlap to numpy
     if exists(join(aims_output_dir, "ri_ovlp.out")):
         ovlp_numpy = np.loadtxt(join(aims_output_dir, "ri_ovlp.out"))
         # Save to numpy to compress, then remove the original text file
         np.save(join(aims_output_dir, "ri_ovlp.npy"), ovlp_numpy)
         os.remove(join(aims_output_dir, "ri_ovlp.out"))
-    else:
+    
+    # Read from numpy
+    elif exists(join(aims_output_dir, "ri_ovlp.npy")):
         ovlp_numpy = np.load(join(aims_output_dir, "ri_ovlp.npy"))
+    
+    # No overlap found - in this case it likely has not been written by FHI-aims (intentionally)
+    else:
+        return
+
+    # Ensure a correct dimension. Currently it is a flat vector representing the
+    # triangular matrix, of length ((n^2 + n) / 2), where `n` is the length of the
+    # corresponding coefficient vector.
     coeffs_numpy = np.load(join(aims_output_dir, "ri_restart_coeffs.npy"))
     ovlp_dim = int(coeffs_numpy.shape[0])
     assert len(ovlp_numpy) == ((ovlp_dim ** 2) + ovlp_dim) / 2
@@ -577,6 +584,7 @@ def load_ovlp_matrix_to_square_matrix_numpy(
 def process_ri_outputs(
     aims_output_dir: str,
     structure_idx: int,
+    energy_bin: int,
     ovlp_cond_num: bool,
     cutoff_ovlp: bool,
     ovlp_sparsity_threshold: Optional[float],
@@ -615,6 +623,7 @@ def process_ri_outputs(
         lmax=lmax,
         nmax=nmax,
         structure_idx=structure_idx,
+        energy_bin=energy_bin,
         backend="numpy",
     )
     metatensor.save(join(save_dir, "ri_coeffs.npz"), coeffs_mts)
@@ -637,6 +646,7 @@ def process_ri_outputs(
         lmax=lmax,
         nmax=nmax,
         structure_idx=structure_idx,
+        energy_bin=energy_bin,
         backend="numpy",
     )
     metatensor.save(join(save_dir, "ri_projs.npz"), projs_mts)
@@ -646,56 +656,57 @@ def process_ri_outputs(
     # Load the overlap matrix to a full square matrix
     ovlp_numpy = load_ovlp_matrix_to_square_matrix_numpy(aims_output_dir)
 
-    # Convert to TensorMap and save
-    ovlp = convert.overlap_matrix_ndarray_to_tensormap(
-        frame,
-        overlap_matrix=ovlp_numpy,
-        lmax=lmax,
-        nmax=nmax,
-        structure_idx=structure_idx,
-        backend="numpy",
-    )
-
-    # Parse basis function radii
-    max_radii = parser.get_max_overlap_radius_by_type(aims_output_dir)
-    pickle_dict(
-        join(save_dir, "max_bf_radii.pickle"),
-        max_radii,
-    )
-
-    # Cutoff overlap if applicable
-    if cutoff_ovlp:
-        ovlp = mask.cutoff_overlap_matrix(
-            frames=[frame],
-            frame_idxs=[structure_idx],
-            overlap_matrix=ovlp,
-            radii=max_radii,
-            drop_empty_blocks=True,
+    if ovlp_numpy is not None:
+        # Convert to TensorMap and save
+        ovlp = convert.overlap_matrix_ndarray_to_tensormap(
+            frame,
+            overlap_matrix=ovlp_numpy,
+            lmax=lmax,
+            nmax=nmax,
+            structure_idx=structure_idx,
             backend="numpy",
         )
 
-    # Remove overlaps that are below a threshold
-    if ovlp_sparsity_threshold is not None:
-        ovlp = mask.sparsify_overlap_matrix(
-            overlap_matrix=ovlp,
-            sparsity_threshold=ovlp_sparsity_threshold,
-            drop_empty_blocks=True,
-            backend="numpy",
-        )
-
-    # Save
-    metatensor.save(
-        join(save_dir, "ri_ovlp.npz"),
-        utils.make_contiguous_numpy(ovlp),
-    )
-
-    # Calculate the condition number of the overlap matrix and save
-    if ovlp_cond_num:
-        cond_num = np.linalg.cond(ovlp_numpy)
+        # Parse basis function radii
+        max_radii = parser.get_max_overlap_radius_by_type(aims_output_dir)
         pickle_dict(
-            join(save_dir, "ri_ovlp_cond_num.pickle"),
-            {"cond": cond_num},
+            join(save_dir, "max_bf_radii.pickle"),
+            max_radii,
         )
+
+        # Cutoff overlap if applicable
+        if cutoff_ovlp:
+            ovlp = mask.cutoff_overlap_matrix(
+                frames=[frame],
+                frame_idxs=[structure_idx],
+                overlap_matrix=ovlp,
+                radii=max_radii,
+                drop_empty_blocks=True,
+                backend="numpy",
+            )
+
+        # Remove overlaps that are below a threshold
+        if ovlp_sparsity_threshold is not None:
+            ovlp = mask.sparsify_overlap_matrix(
+                overlap_matrix=ovlp,
+                sparsity_threshold=ovlp_sparsity_threshold,
+                drop_empty_blocks=True,
+                backend="numpy",
+            )
+
+        # Save
+        metatensor.save(
+            join(save_dir, "ri_ovlp.npz"),
+            utils.make_contiguous_numpy(ovlp),
+        )
+
+        # Calculate the condition number of the overlap matrix and save
+        if ovlp_cond_num:
+            cond_num = np.linalg.cond(ovlp_numpy)
+            pickle_dict(
+                join(save_dir, "ri_ovlp_cond_num.pickle"),
+                {"cond": cond_num},
+            )
 
     # 2) Parse aims.out
     aims_out_parsed = parse_aims_out(aims_output_dir)

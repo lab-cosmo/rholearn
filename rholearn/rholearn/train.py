@@ -230,6 +230,14 @@ def train():
                         "PCAs should not already be fitted"
                     )
 
+        # Get the energy bin centers
+        bin_centers = train_utils.get_energy_bins(
+            dft_options["ILDOS"]["min_energy"],
+            dft_options["ILDOS"]["max_energy"],
+            dft_options["ILDOS"]["interval"],
+        )
+        energy_bins = list(range(len(bin_centers)))
+
         # Build training dataset
         train_dataset = train_utils.get_dataset(
             frames=[all_frames[A] for A in all_subset_id[0]],
@@ -239,7 +247,7 @@ def train():
             load_dir=dft_options["PROCESSED_DIR"],
             overlap_cutoff=ml_options["OVERLAP_CUTOFF"],
             overlap_threshold=ml_options["OVERLAP_THRESHOLD"],
-            energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
+            energy_bins=energy_bins,
             device=torch.device(ml_options["TRAIN"]["device"]),
             dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
             log_path=log_path,
@@ -273,7 +281,7 @@ def train():
             load_dir=dft_options["PROCESSED_DIR"],
             overlap_cutoff=None,  # no cutoff for validation
             overlap_threshold=None,  # no threshold for validation
-            energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
+            energy_bins=energy_bins,
             device=torch.device(ml_options["TRAIN"]["device"]),
             dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
             log_path=log_path,
@@ -335,7 +343,7 @@ def train():
             out_properties = train_utils.target_basis_set_to_out_properties(
                 in_keys,
                 target_basis,
-                energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
+                energy_bins=energy_bins,
             )
             model = RhoModel(
                 in_keys=in_keys,
@@ -344,7 +352,7 @@ def train():
                 descriptor_calculator=descriptor_calculator,
                 architecture=ml_options["ARCHITECTURE"],
                 target_basis=target_basis,
-                energy_bins=dft_options["ILDOS"].get("energy_bins", 1),
+                energy_bins=energy_bins,
                 dtype=getattr(torch, ml_options["TRAIN"]["dtype"]),
                 device=torch.device(ml_options["TRAIN"]["device"]),
                 pretrain=ml_options["PRETRAIN"],
@@ -389,6 +397,13 @@ def train():
     if ml_options["STANDARDIZE_TARGETS"]:
         io.log(log_path, "Computing target standardizer using training data")
         standardizer = train_utils.get_tensor_std(all_train_target_c)
+
+        # Check for zero standard deviations
+        for key, block in standardizer.items():
+            if torch.any(block.values == 0):
+                raise ValueError(
+                    f"zero standard deviation in target for block at key {key}"
+                )
         model._set_standardizer(standardizer)
 
     # Compute the validation loss before (pre)training

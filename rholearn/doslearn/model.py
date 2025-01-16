@@ -19,11 +19,9 @@ ALLOWED_ENERGY_REFS = [
 ]
 
 class ExponentialLayer(torch.nn.Module):
-    """
-    Custom module to apply torch.exp
-    """
-    def forward(self, x):
-        return torch.exp(x)
+    """Custom module to apply torch.exp()."""
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return torch.exp(input)
 
 class SoapDosNet(torch.nn.Module):
     """
@@ -38,6 +36,7 @@ class SoapDosNet(torch.nn.Module):
         max_energy: float,
         interval: float,
         energy_reference: str,
+        model_per_center_type: bool = False,
         hidden_layer_widths: Optional[List[int]] = None,
         dtype: Optional[torch.dtype] = torch.float64,
         device: Optional[torch.device] = "cpu",
@@ -53,6 +52,8 @@ class SoapDosNet(torch.nn.Module):
         self._interval = interval
         self._dtype = dtype
         self._device = device
+        self._model_per_center_type = model_per_center_type
+        self._standardizer = None
 
         assert energy_reference in ALLOWED_ENERGY_REFS, (
             f"Energy reference must be in {ALLOWED_ENERGY_REFS}. Got: {energy_reference}"
@@ -116,6 +117,13 @@ class SoapDosNet(torch.nn.Module):
             out_properties=out_properties,
         )
 
+    def _set_standardizer(self, standardizer: torch.Tensor) -> None:
+        """
+        Sets the "_standardizer" attribute to the passed tensor ``standardizer``.
+        """
+        standardizer.requires_grad = False
+        self._standardizer = standardizer
+
     def compute_descriptor(
         self,
         frames: List[Frame],
@@ -139,6 +147,10 @@ class SoapDosNet(torch.nn.Module):
             )
         )
 
+        # Move "center_type" to samples if not having different models for each species
+        if self._model_per_center_type is False:
+            soap = soap.keys_to_samples("center_type")
+
         # Re-index "system" metadata along samples axis
         if frame_idxs is not None:
             soap = rho_train_utils.reindex_tensormap(soap, frame_idxs)
@@ -152,6 +164,7 @@ class SoapDosNet(torch.nn.Module):
         frame_idxs: Optional[List[int]] = None,
         descriptor: Optional[mts.TensorMap] = None,
         split_by_frame: bool = False,
+        atom_reduction: str = "mean",
     ) -> mts.TensorMap:
         """
         Computes a descriptor if not provided, and passes it through the neural network
@@ -164,8 +177,27 @@ class SoapDosNet(torch.nn.Module):
         # Make prediction
         prediction = self._nn.forward(descriptor)
 
-        # Move center_type to samples
-        prediction = prediction.keys_to_samples(["center_type"])
+        # Move "center_type" to samples if we have one model per species
+        if self._model_per_center_type:
+            prediction = prediction.keys_to_samples(["center_type"])
+
+        # Now sum over "center_type"
+        prediction = mts.sum_over_samples(prediction, "center_type")
+
+        # and reduce over "atom"
+        if atom_reduction == "mean":
+            prediction = mts.mean_over_samples(prediction, "atom")
+        elif atom_reduction == "sum":
+            prediction = mts.sum_over_samples(prediction, "atom")
+        else:
+            raise ValueError(
+                f"invalid reduction over 'atom' samples: {atom_reduction}"
+                " must be either 'sum' or 'mean'."
+            )
+
+        # Un-standardize the predictions, if applicable
+        if self._standardizer is not None:
+            prediction[0].values[:] *= self._standardizer
 
         # Re-index "system" metadata along samples axis
         if frame_idxs is not None:
@@ -181,28 +213,15 @@ class SoapDosNet(torch.nn.Module):
         self, frames: List[Frame], frame_idxs: Optional[List[int]] = None
     ) -> mts.TensorMap:
         """
-        Computes a descriptor if not provided, and passes it through the neural network
-        to predict the global DOS per structure.
+        Predicts the global DOS for the input ``frames``.
         """
-        # Make prediction
-        prediction = self.forward(
+        return self.forward(
             frames=frames,
-            frame_idxs=None,
+            frame_idxs=frame_idxs,
             descriptor=None,
-            split_by_frame=False,
+            split_by_frame=True,
+            atom_reduction="sum",
         )
-
-        # In the case of prediction we do not want a normalized DOS prediction, so sum
-        # atomic contributions. This is in contrast to what would typically be done in
-        # traning, whereby reduction over atoms is done by a mean, not a sum.
-        prediction = mts.sum_over_samples(prediction, "center_type")
-        prediction = mts.sum_over_samples(prediction, "atom")
-
-        # Re-index "system" metadata along samples axis and split by frame
-        prediction = rho_train_utils.reindex_tensormap(prediction, frame_idxs)
-        prediction = rho_train_utils.split_tensormap_by_system(prediction, frame_idxs)
-
-        return prediction
 
     def _get_dummy_descriptor(self) -> mts.TensorMap:
         """

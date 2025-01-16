@@ -13,6 +13,24 @@ from scipy.special import erf
 
 from rholearn.aims_interface import parser
 
+def get_energy_bins(
+    min_energy: float, max_energy: float, interval: float
+) -> List[float]:
+
+    assert min_energy < max_energy, "`min_energy` must be less than `max_energy`"
+    assert interval > 0, "interval must be greater than zero"
+    assert np.isclose(((max_energy - min_energy) / interval) % 1, 0), (
+        "There must be an integer multiple of bins in the energy range"
+    )
+    # Generate bin edges
+    edges = np.arange(min_energy, max_energy + interval, interval)
+    
+    # Calculate bin centers
+    bin_centers = edges[:-1] + (interval / 2)
+    
+    return bin_centers.tolist()
+
+
 # ===== HOMO / LUMO =====
 
 
@@ -157,6 +175,7 @@ def get_eigenstate_occs_ildos(
     (``method="gaussian_numerical"``), or a delta function (``method="delta"``) centered
     on each eigenvalue.
     """
+    valid_methods = ["gaussian_analytical"] #, "gaussian_numerical"]
     if method == "gaussian_analytical":
         return _get_eigenstate_occs_ildos_analytical(
             aims_output_dir=aims_output_dir,
@@ -164,18 +183,17 @@ def get_eigenstate_occs_ildos(
             energy_window=energy_window,
             target_energy=target_energy,
         )
-    elif method == "gaussian_numerical":
-        return _get_eigenstate_occs_ildos_numerical(
-            aims_output_dir=aims_output_dir,
-            gaussian_width=gaussian_width,
-            energy_window=energy_window,
-            target_energy=target_energy,
-            energy_grid_points=1000,
-        )
+    # elif method == "gaussian_numerical":
+    #     return _get_eigenstate_occs_ildos_numerical(
+    #         aims_output_dir=aims_output_dir,
+    #         gaussian_width=gaussian_width,
+    #         energy_window=energy_window,
+    #         target_energy=target_energy,
+    #         energy_grid_points=1000,
+    #     )
     else:
         raise ValueError(
-            "Invalid option for `method`. must be one of ['gaussian_analytical',"
-            " 'gaussian_numerical']"
+            f"Invalid option for `method`. must be one of {valid_methods}."
         )
 
 
@@ -247,9 +265,9 @@ def _get_eigenstate_occs_ildos_numerical(
     """
     kso_info = parser.get_eigenstate_info(aims_output_dir)
 
-    if target_energy is None:  # Find the energy of the HOMO
-        homo_idx = parser.find_homo_kso_idxs(kso_info)[0]
-        target_energy = kso_info[homo_idx - 1]["energy_eV"]  # 1-indexing!
+    # if target_energy is None:  # Find the energy of the HOMO
+    #     homo_idx = parser.find_homo_kso_idxs(kso_info)[0]
+    #     target_energy = kso_info[homo_idx - 1]["energy_eV"]  # 1-indexing!
 
     W_vect = []
     for kso in kso_info:

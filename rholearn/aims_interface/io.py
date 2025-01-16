@@ -234,7 +234,11 @@ def get_control_parameters_for_frame(
             )
         else:
             control_params.update(
-                _get_aims_cube_edges(frame, cube_settings.get("n_points"))
+                _get_aims_cube_edges(
+                    frame,
+                    cube_settings.get("n_points"),
+                    cube_settings.get("bounding_box_only"),
+                )
             )
 
     return control_params
@@ -302,7 +306,11 @@ def _get_aims_cube_edges_slab(
     return {"cubes": cube_string}
 
 
-def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:
+def _get_aims_cube_edges(
+    frame: Frame,
+    n_points: tuple,
+    bounding_box_only: bool = False,
+) -> Dict[str, str]:
     """
     Returns FHI-aims keywords for specifying the cube file edges in control.in.
     The x, y, z edges are taken to be the lattice vectors of the frame.
@@ -314,6 +322,9 @@ def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:
             + "cube edge 101 0.0 0.0 0.15 \n",
         }
     as required for writing a control.in using the ASE interface.
+
+    If `bounding_box_only` is true, a cube is built around the bounding box of the atoms
+    plus 5 Angstrom in each direction.
     """
     # Find the bounding box and center of the frame
     x_min = np.min(frame.positions[:, 0])
@@ -327,7 +338,10 @@ def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:
     max_coord = np.array([x_max, y_max, z_max])
     center = (min_coord + max_coord) / 2
 
-    if np.all([length > 0 for length in frame.cell.lengths]):
+    if np.all([length == 0 for length in frame.cell.lengths]) or bounding_box_only:
+        # take bounding box as cube edges, plus 5 Angstrom
+        max_lengths = (max_coord - min_coord) + np.array([5, 5, 5])
+    else:
         # check square cell
         if not np.all(
             [
@@ -349,9 +363,6 @@ def _get_aims_cube_edges(frame: Frame, n_points: tuple) -> Dict[str, str]:
             frame.cell.matrix[1, 1],
             frame.cell.matrix[2, 2],
         ]
-    else:
-        # take bounding box as cube edges, plus 5 Angstrom
-        max_lengths = (max_coord - min_coord) + np.array([5, 5, 5])
 
     return {
         "cubes": f"cube origin {np.round(center[0], 3)} "

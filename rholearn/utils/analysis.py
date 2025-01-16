@@ -229,6 +229,36 @@ def plot_val_loss_curve(
 
     return
 
+def get_test_errors_from_eval_log(path: str) -> Tuple[float, float]:
+    """
+    Parses the test errors from the eval.log file at `path`.
+    """
+    field_names = ["abs_error", "norm", "nmae", "squared_error"]
+    with open(path, "r") as f:
+        lines = f.readlines()
+
+    results = {
+        "ri": {field: [] for field in field_names},
+        "scf": {field: [] for field in field_names},
+    }
+    for line in lines:
+
+        line = line.split()
+        if len(line) < 3:
+            continue
+
+        if line[2] != "system":
+            continue
+
+        # Parse and store data
+        target = line[5]
+        fields = line[6:][::2]
+        data = line[7:][::2]
+        for field, value in zip(fields, data):
+            results[target][field].append(float(value))
+
+    return results
+
 
 def plot_test_error_learning_curve(
     train_dir: callable,
@@ -245,33 +275,11 @@ def plot_test_error_learning_curve(
     legend.
     """
     # Parse data from `train_dir`/outputs/train.log
-    field_names = ["abs_error", "norm", "nmae", "squared_error"]
-    results = {
-        label: {
-            "ri": {field: [] for field in field_names},
-            "scf": {field: [] for field in field_names},
-        }
-        for label in labels
-    }
+    results = {label: None for label in labels}
     for label in labels:
-        with open(join(train_dir(label), "outputs/eval.log"), "r") as f:
-            lines = f.readlines()
-
-        for line in lines:
-
-            line = line.split()
-            if len(line) < 3:
-                continue
-
-            if line[2] != "system":
-                continue
-
-            # Parse and store data
-            target = line[5]
-            fields = line[6:][::2]
-            data = line[7:][::2]
-            for field, value in zip(fields, data):
-                results[label][target][field].append(float(value))
+        results[label] = get_test_errors_from_eval_log(
+            join(train_dir(label), "outputs/eval.log")
+        )
 
     # Plot data
     fig, ax = plt.subplots(1, 1, figsize=(5, 5))
@@ -304,6 +312,25 @@ def plot_test_error_learning_curve(
 
     return
 
+def get_pretrainer_val_loss_from_train_log(path: str) -> float:
+    """
+    Parses the pretrainer validation loss from the train.log file at `path`.
+    """
+    with open(path, "r") as f:
+        lines = f.readlines()
+
+    for line in lines:
+
+        line = line.split()
+        if len(line) < 5:
+            continue
+
+        if line[2:7] == "Validation loss of pretrained model:".split():
+
+            val_loss = float(line[7])
+            break
+
+    return val_loss
 
 def plot_pretrainer_val_losses(
     train_dir: callable,
@@ -326,19 +353,10 @@ def plot_pretrainer_val_losses(
 
         val_losses = []
         for label in labels_:
-            with open(join(train_dir(label), "outputs/train.log"), "r") as f:
-                lines = f.readlines()
-
-            for line in lines:
-
-                line = line.split()
-                if len(line) < 5:
-                    continue
-
-                if line[2:7] == "Validation loss of pretrained model:".split():
-
-                    val_loss = float(line[7])
-                    val_losses.append(val_loss)
+            val_loss = get_pretrainer_val_loss_from_train_log(
+                join(train_dir(label), "outputs/train.log")
+            )
+            val_losses.append(val_loss)     
 
         ax.plot(x_axis_, val_losses, marker=".", label=legend_)
 
