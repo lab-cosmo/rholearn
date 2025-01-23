@@ -158,17 +158,19 @@ For a more in-depth walkthrough of the functionality, see the following tutorial
   url          = {https://doi.org/10.5281/zenodo.13891847}
 }
 
-@article{how_2024_adaptive,
-  author         = {How, Wei Bin and
-                    Chong, Sanggyu and
-                    Grasselli, Federico and
-                    Huguenin-Dumittan, Kevin K. and
-                    Ceriotti, Michele},
-  title          = {Adaptive energy reference for machine-learning models of the electronic density of states}, 
-  year           = 2024,
-  eprint         = 2407.01068,
-  archivePrefix  = {arXiv},
-  primaryClass   = {cond-mat.mtrl-sci},
-  url            = {https://arxiv.org/abs/2407.01068},
+@article{PhysRevMaterials.9.013802,
+  title = {Adaptive energy reference for machine-learning models of the electronic density of states},
+  author = {How, Wei Bin and Chong, Sanggyu and Grasselli, Federico and Huguenin-Dumittan, Kevin K. and Ceriotti, Michele},
+  journal = {Phys. Rev. Mater.},
+  volume = {9},
+  issue = {1},
+  pages = {013802},
+  numpages = {10},
+  year = {2025},
+  month = {Jan},
+  publisher = {American Physical Society},
+  doi = {10.1103/PhysRevMaterials.9.013802},
+  url = {https://link.aps.org/doi/10.1103/PhysRevMaterials.9.013802}
 }
+
 ```
