@@ -159,18 +159,22 @@ For a more in-depth walkthrough of the functionality, see the following tutorial
 }
 
 @article{PhysRevMaterials.9.013802,
-  title = {Adaptive energy reference for machine-learning models of the electronic density of states},
-  author = {How, Wei Bin and Chong, Sanggyu and Grasselli, Federico and Huguenin-Dumittan, Kevin K. and Ceriotti, Michele},
-  journal = {Phys. Rev. Mater.},
-  volume = {9},
-  issue = {1},
-  pages = {013802},
-  numpages = {10},
-  year = {2025},
-  month = {Jan},
-  publisher = {American Physical Society},
-  doi = {10.1103/PhysRevMaterials.9.013802},
-  url = {https://link.aps.org/doi/10.1103/PhysRevMaterials.9.013802}
+  author       = {How, Wei Bin and
+                  Chong, Sanggyu and
+                  Grasselli, Federico and
+                  Huguenin-Dumittan, Kevin K. and
+                  Ceriotti, Michele},
+  title        = {Adaptive energy reference for machine-learning models of the electronic density of states},
+  journal      = {Phys. Rev. Mater.},
+  volume       = {9},
+  issue        = {1},
+  pages        = {013802},
+  numpages     = {10},
+  year         = {2025},
+  month        = {Jan},
+  publisher    = {American Physical Society},
+  doi          = {10.1103/PhysRevMaterials.9.013802},
+  url          = {https://link.aps.org/doi/10.1103/PhysRevMaterials.9.013802},
 }
 
 ```
