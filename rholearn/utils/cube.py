@@ -198,6 +198,9 @@ def plot_contour_ccm(
     xy_tiling: List[int] = None,
     cmap: str = "viridis",
     plot_atoms: bool = False,
+    orthogonalize_image: bool = False,
+    xlim: Optional[List[float]] = None,
+    ylim: Optional[List[float]] = None,
     save_dir: str = None,
 ):
     """
@@ -216,10 +219,14 @@ def plot_contour_ccm(
     if xy_tiling is None:
         xy_tiling = [1, 1]
 
+    if orthogonalize_image:
+        pad_tiling = 2
+        xy_tiling = [i + pad_tiling for i in xy_tiling]
+
     fig, axes = plt.subplots(
         len(isovalues) + 1 if plot_atoms else len(isovalues),
         len(cubes),
-        figsize=(10 * len(cubes), 5 * len(isovalues)),
+        # figsize=(10 * len(cubes), 5 * len(isovalues)),
         sharey=True,
         sharex=True,
     )
@@ -318,9 +325,21 @@ def plot_contour_ccm(
 
         # Plot the contour maps
         for ax_i, (x, y, z, ax) in enumerate(zip(X, Y, Z, axes[isovalue_i])):
+
+            # Reflect in x and y axis planes to correct for matplotlib's way of plotting
+            # contour maps
+            x = -x + np.abs(np.min(-x))
+            y = -y + np.abs(np.min(-y))
+
+            if orthogonalize_image:
+                # Ensure there is no empty space by moving the origin and setting axes limit
+                # to 'cut out' a non-empty rectangle in the xy plane
+                x -= cubes[0].frame.cell.matrix[1][0] * (xy_tiling[1] - pad_tiling)
+                y -= cubes[0].frame.cell.matrix[0][1] * (xy_tiling[0] - pad_tiling)
+
             cs = ax.contourf(
-                -x + np.abs(np.min(-x)),
-                -y + np.abs(np.min(-y)),
+                x,
+                y,
                 z,
                 vmin=z_min,
                 vmax=z_max,
@@ -328,6 +347,20 @@ def plot_contour_ccm(
                 levels=levels_grid,
                 norm=norm,
             )
+
+            if orthogonalize_image:
+                ax.set_xlim(
+                    [
+                        0,
+                        cubes[0].frame.cell.matrix[0][0] * (xy_tiling[0] - pad_tiling),
+                    ]
+                )
+                ax.set_ylim(
+                    [
+                        0,
+                        cubes[0].frame.cell.matrix[1][1] * (xy_tiling[1] - pad_tiling),
+                    ]
+                )
 
             # Adjust colorbar size and position
             if ax_i == len(cubes) - 1:
@@ -357,27 +390,18 @@ def plot_contour_ccm(
                     ssims[isovalue_i][Z_input_i][Z_target_i] = structural_similarity(
                         Z_target, Z_input, data_range=Z_target.max() - Z_target.min(),
                     )
-                    # Don't plot MSE (for now)
                     mses[isovalue_i][Z_input_i][Z_target_i] = mean_squared_error(Z_target, Z_input)
             
             # Annotate the axes titles with the errors
-            for target_i in range(len(Z) - 1):
+            for input_i in range(1, len(Z)):
                 ssim_i = ""
-                for input_i in range(target_i + 1, len(Z)):
-                    ssim_i += f"{input_i}: {ssims[isovalue_i][input_i][target_i]:.2f}, "
-
-                # Don't plot MSE (for now)
-                # mse_i = ""
-                # for i in range(ax_i, len(Z) - 1):
-                #     mse_i += f"vs {i}: {mses[isovalue_i][ax_i][i]:.2f}, "
-                axes[isovalue_i][input_i].set_title(f"SSIM: {ssim_i}")  #, MSE: {mse_i}")
+                for target_i in range(input_i):
+                    ssim_i += f"{target_i}: {ssims[isovalue_i][input_i][target_i]:.2f}, "
+                axes[isovalue_i][input_i].set_title(f"SSIM: {ssim_i}")
 
     [ax.set_xlabel("x / Å") for ax in axes[-1, :]]
     [ax.set_ylabel("y / Å") for ax in axes[:, 0]]
     [ax.set_aspect("equal") for ax in axes.flatten()]
-
-    # Reflect in the x-axis due to the way matplotlib plots contours
-    # plt.gca().invert_xaxis()
 
     # Save plot and errors
     if save_dir is not None:

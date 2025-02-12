@@ -66,25 +66,34 @@ def eval():
 
     io.log(log_path, f"Performing model evaluation on data subset: {ml_options['EVAL']['subset_type']}")
     io.log(log_path, "Getting the evaluation structure IDs and frames")
-    all_subset_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
-        frame_idxs=frame_idxs,
-        n_train=ml_options["N_TRAIN"],
-        n_val=ml_options["N_VAL"],
-        n_test=ml_options["N_TEST"],
-        seed=ml_options["SEED"],
-    )
-    if ml_options['EVAL']['subset_type'] == "train":
-        eval_id = all_subset_id[0]
-    elif ml_options['EVAL']['subset_type'] == "val":
-        eval_id = all_subset_id[1]
-    elif ml_options['EVAL']['subset_type'] == "test":
-        eval_id = all_subset_id[2]
-    else:
-        raise ValueError(f"Invalid subset type: {ml_options['EVAL']['subset_type']}")
+    
+    # a) Do the standard random cross-validation split and pull out the ids
+    # corresponding to the specified subset (i.e. train or test or val).
+    if ml_options["EVAL"]["eval_id"] is None:
 
-    # Now take a subset of the test IDs, if applicable
-    if ml_options["EVAL"]["subset_size"] is not None:
-        eval_id = eval_id[: ml_options["EVAL"]["subset_size"]]
+        all_subset_id = train_utils.crossval_idx_split(  # cross-validation split of idxs
+            frame_idxs=frame_idxs,
+            n_train=ml_options["N_TRAIN"],
+            n_val=ml_options["N_VAL"],
+            n_test=ml_options["N_TEST"],
+            seed=ml_options["SEED"],
+        )
+        if ml_options['EVAL']['subset_type'] == "train":
+            eval_id = all_subset_id[0]
+        elif ml_options['EVAL']['subset_type'] == "val":
+            eval_id = all_subset_id[1]
+        elif ml_options['EVAL']['subset_type'] == "test":
+            eval_id = all_subset_id[2]
+        else:
+            raise ValueError(f"Invalid subset type: {ml_options['EVAL']['subset_type']}")
+
+        # Now take a subset of the test IDs, if applicable
+        if ml_options["EVAL"]["subset_size"] is not None:
+            eval_id = eval_id[: ml_options["EVAL"]["subset_size"]]
+
+    # or b) just use user-defined evaluation frame idxs
+    else:
+        eval_id = ml_options["EVAL"]["eval_id"]
 
     io.log(log_path, f"    Evaluation system ID: {eval_id}")
     test_frames = [all_frames[A] for A in eval_id]

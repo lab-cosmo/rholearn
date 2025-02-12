@@ -13,6 +13,8 @@ from featomic.torch.clebsch_gordan import (
     ClebschGordanProduct, DensityCorrelations)
 from featomic.torch.clebsch_gordan._density_correlations import (
     _filter_redundant_keys, _increment_property_names)
+import vesin
+import numpy as np
 
 from rholearn.rholearn import mask, train_utils
 from rholearn.utils import _dispatch, system
@@ -520,6 +522,14 @@ class DescriptorCalculator(torch.nn.Module):
                 ).reshape(-1, 1),
             )
         )
+
+        # HACK: divide by the number of neighbor for each atom center
+        # assert len(calculator.cutoffs) == 1
+        # num_neighbors = _get_num_neighbors(frames, cutoff=calculator.cutoffs[0])
+        # for block in density:
+        #     for sample_i, sample in enumerate(block.samples):
+        #         structure_idx, atom_idx = sample
+        #         block.values[sample_i][:] *= np.sqrt(num_neighbors[structure_idx][atom_idx] + 1)
 
         return density
 
@@ -1341,3 +1351,35 @@ def acdc_drop_redundant_properties(
         )
 
     return mts.TensorMap(tensor.keys, new_blocks)
+
+
+def _get_num_neighbors(frames, cutoff):
+    """
+    For each frame in `frames`, compute the number of neighbors of each atom and returns
+    it in a dict.
+    """
+    # Init NL
+    nl = vesin.NeighborList(cutoff=cutoff, full_list=False)
+
+    # Compute for each frame
+    neighbors = {A: None for A in range(len(frames))}
+    for A, frame in enumerate(frames):
+
+        neighbors[A] = {i: 0 for i in range(len(frame.positions))}
+
+        # Get box and pbc, if any
+        if any([d == 0 for d in frame.cell.lengths]):
+            box = np.zeros((3, 3))
+            periodic = False
+        else:
+            box = frame.cell.matrix
+            periodic = True
+
+        # Compute neighbors
+        pair_list, = nl.compute(
+            frame.positions, box=box, periodic=periodic, quantities="P",
+        )
+        for i, j in pair_list:
+            neighbors[A][i] += 1
+
+    return neighbors

@@ -46,14 +46,19 @@ def run_ri_fit() -> None:
 
     frames = [frames[A] for A in frame_idxs]
 
-    # Set up RI calculation for each energy bin in the range
-    for energy_bin, bin_center in enumerate(
-        orbitals.get_energy_bins(
+    # Get the energy bins, if any
+    if len(dft_options["ILDOS"]) == 0:
+        energy_bins = [0]
+    else:
+        energy_bins = orbitals.get_energy_bins(
             dft_options["ILDOS"]["min_energy"],
             dft_options["ILDOS"]["max_energy"],
             dft_options["ILDOS"]["interval"],
         )
-    ):
+        energy_bins = list(range(len(energy_bins)))
+
+    # Run RI calculation for each energy bin in the range
+    for energy_bin in energy_bins:
 
         # Write submission script and run FHI-aims via sbatch array
         fname = f"run-aims-ri-{hpc.timestamp()}.sh"
@@ -97,14 +102,19 @@ def setup_ri_fit() -> None:
 
     assert len(frame_idxs) > 0, "No frames in the selection."
 
-    # Set up RI calculation for each energy bin in the range
-    for energy_bin, bin_center in enumerate(
-        orbitals.get_energy_bins(
+    # Get the energy bins, if any
+    if len(dft_options["ILDOS"]) == 0:
+        energy_bins = [0]
+    else:
+        energy_bins = orbitals.get_energy_bins(
             dft_options["ILDOS"]["min_energy"],
             dft_options["ILDOS"]["max_energy"],
             dft_options["ILDOS"]["interval"],
         )
-    ):
+        energy_bins = list(range(len(energy_bins)))
+
+    # Set up RI calculation for each energy bin in the range
+    for energy_bin in energy_bins:
 
         # Define the python command to run for the given frame
         python_command = (
@@ -112,10 +122,10 @@ def setup_ri_fit() -> None:
             'ri_fit.setup_ri_fit_for_frame_and_energy('
             '"${ARRAY_IDX}",'
             f'{energy_bin},'
-            f'\'{run_id}\''
-            ');'
-            '"'
         )
+        if run_id is not None:
+            python_command += f'\'{run_id}\''
+        python_command += ');"'
 
         # Write submission script and run FHI-aims via sbatch array
         fname = f"set-up-ri-{hpc.timestamp()}.sh"
@@ -216,13 +226,18 @@ def process_ri_fit() -> None:
         run_id_ = ""
     else:
         run_id_ = f"-{run_id}"
-    for energy_bin, bin_center in enumerate(
-        orbitals.get_energy_bins(
+
+    # Get the energy bins, if any
+    if len(dft_options["ILDOS"]) == 0:
+        energy_bins = [0]
+    else:
+        energy_bins = orbitals.get_energy_bins(
             dft_options["ILDOS"]["min_energy"],
             dft_options["ILDOS"]["max_energy"],
             dft_options["ILDOS"]["interval"],
         )
-    ):
+        energy_bins = list(range(len(energy_bins)))
+    for energy_bin in energy_bins:
         for A in frame_idxs:
             os.makedirs(dft_options["PROCESSED_DIR"](A, energy_bin), exist_ok=True)
             shutil.copy(f"dft-options{run_id_}.yaml", dft_options["PROCESSED_DIR"](A, energy_bin))
@@ -233,10 +248,10 @@ def process_ri_fit() -> None:
             ' ri_fit.process_ri_fit_for_frame_and_energy('
             '"${ARRAY_IDX}",'
             f'{energy_bin},'
-            f'\'{run_id}\''
-            ');'
-            '"'
         )
+        if run_id is not None:
+            python_command += f'\'{run_id}\''
+        python_command += ');"'
 
         # Process the RI fit output for each frame
         fname = f"process-ri-{hpc.timestamp()}.sh"
@@ -352,11 +367,17 @@ def _write_eigenstate_occs_to_file(
         # Get the energy reference
         if ildos_kwargs["energy_reference"] == "Fermi":
             ildos_kwargs["target_energy"] = calc_info["fermi_eV"]
-        else:
-            assert ildos_kwargs["energy_reference"] == "Hartree", (
-                "ILDOS['energy_reference'] must be either 'Fermi' or 'Hartree'"
-            )
+        elif ildos_kwargs["energy_reference"] == "Hartree":
             ildos_kwargs["target_energy"] = 0.0
+        elif ildos_kwargs["energy_reference"] == "Custom":
+            ildos_kwargs["target_energy"] = unpickle_dict(
+                ildos_kwargs["read_energy_references_from"]
+            )[A]
+        else:
+            raise ValueError(
+                "ILDOS['energy_reference'] must be one of "
+                "'Fermi', 'Hartree', or 'Custom'"
+            )
 
         # Get KSO occupations
         eigenstate_occs = orbitals.get_eigenstate_occs_ildos(

@@ -515,19 +515,34 @@ def train():
 
         # Also save prediction and target
         # mts.save("d.npz", all_train_descriptor)
-        pretrain_val_input_c = model._pretrainer.predict(all_val_descriptor)
+        pretrain_input_c_train = model._pretrainer.predict(all_train_descriptor)
+        pretrain_input_c_val = model._pretrainer.predict(all_val_descriptor)
         if ml_options["STANDARDIZE_TARGETS"]:
+            # Train
             mts.save(
-                "pretrain_input_c.npz",
-                train_utils.unstandardize_tensor(pretrain_val_input_c, standardizer),
+                "pretrain_input_c_train.npz",
+                train_utils.unstandardize_tensor(pretrain_input_c_train, standardizer),
             )
             mts.save(
-                "target_c.npz",
+                "target_c_train.npz",
+                train_utils.unstandardize_tensor(all_train_target_c, standardizer),
+            )
+            # Val
+            mts.save(
+                "pretrain_input_c_val.npz",
+                train_utils.unstandardize_tensor(pretrain_input_c_val, standardizer),
+            )
+            mts.save(
+                "target_c_val.npz",
                 train_utils.unstandardize_tensor(all_val_target_c, standardizer),
             )
         else:
-            mts.save("pretrain_input_c.npz", pretrain_val_input_c)
-            mts.save("target_c.npz", all_val_target_c)
+            # Train
+            mts.save("pretrain_input_c_train.npz", pretrain_input_c_train)
+            mts.save("target_c_train.npz", all_train_target_c)
+            # Val
+            mts.save("pretrain_input_c_val.npz", pretrain_input_c_val)
+            mts.save("target_c_val.npz", all_val_target_c)
 
         # Finish pretrain
         dt_pretrain = time.time() - t0_pretrain
