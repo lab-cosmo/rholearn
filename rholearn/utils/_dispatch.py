@@ -59,6 +59,17 @@ def arange(start, stop, backend: str = None):
     raise ValueError(f"Unknown backend: {backend}")
 
 
+def concatenate(arrays, backend):
+
+    if backend == "torch":
+        return torch.cat(arrays)
+
+    elif backend == "numpy":
+        return np.concatenate(arrays)
+
+    raise ValueError(f"Unknown backend: {backend}")
+
+
 def int_array(array, backend: str):
 
     if backend == "torch":
@@ -113,6 +124,20 @@ def min(array, axis, backend: str):
 
     raise ValueError(f"Unknown backend: {backend}")
 
+def reshape(array, shape, backend: str, order: str = "C"):
+
+    if backend == "torch":
+        if order == "C":
+            return torch.reshape(array, shape)
+        else:
+            assert order == "F"
+            return _torch_reshape_order_F(array, shape)
+
+    elif backend == "numpy":
+        return np.reshape(array, shape, order=order)
+
+    raise ValueError(f"Unknown backend: {backend}")
+
 
 # def sort(array, axis, backend: str):
 
@@ -136,6 +161,17 @@ def stack(arrays, axis, backend: str):
     raise ValueError(f"Unknown backend: {backend}")
 
 
+def unique(array, backend: str):
+
+    if backend == "torch":
+        return torch.unique(array)
+
+    elif backend == "numpy":
+        return np.unique(array)
+
+    raise ValueError(f"Unknown backend: {backend}")
+
+
 def zeros(*shape, backend: str):
 
     if backend == "torch":
@@ -145,3 +181,11 @@ def zeros(*shape, backend: str):
         return np.zeros(*shape)
 
     raise ValueError(f"Unknown backend: {backend}")
+
+
+# ===== Helper functions ===== #
+
+def _torch_reshape_order_F(array, shape):
+    if len(array.shape) > 0:
+        array = array.permute(*reversed(range(len(array.shape))))
+    return array.reshape(*reversed(shape)).permute(*reversed(range(len(shape))))

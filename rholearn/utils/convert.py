@@ -550,6 +550,7 @@ def coeff_vector_blocks_to_flat(
     lmax: Optional[dict] = None,
     nmax: Optional[dict] = None,
     basis_set: Optional[metatensor.torch.Labels] = None,
+    backend: str = "torch",
 ) -> np.ndarray:
     """
     Convert a metatensor TensorMap of basis function coefficients (or projections) in
@@ -570,6 +571,8 @@ def coeff_vector_blocks_to_flat(
         TensorMap format, of shape (N,), where N is the number of basis functions the
         electron density is expanded onto.
     """
+    assert backend in ["torch", "numpy"]
+
     if basis_set is not None:
         assert (
             lmax is None and nmax is None
@@ -584,14 +587,15 @@ def coeff_vector_blocks_to_flat(
     assert coeff_vector.sample_names == ["system", "atom"]
 
     # Loop over the blocks and split up the values tensors
-    coeff_dict = {}
+    coeff_dict: dict = {}
     for key, block in coeff_vector.items():
         o3_lambda, _, a = key
-        symbol = system.atomic_number_to_atomic_symbol(a)
-        tmp_dict = {}
+        symbol: str = system.atomic_number_to_atomic_symbol(a)
+        tmp_dict: dict = {}
 
         # Store the block values in a dict by atom index
-        for atom_idx in np.unique(block.samples["atom"]):
+        atom_idxs = _dispatch.unique(block.samples["atom"], backend)
+        for atom_idx in atom_idxs:
             atom_idx_mask = block.samples["atom"] == atom_idx
             # Get the array of values for this atom, of species `symbol` and
             # `o3_lambda`` value The shape of this array is (1, 2*o3_lambda+1,
@@ -599,18 +603,18 @@ def coeff_vector_blocks_to_flat(
             atom_arr = block.values[atom_idx_mask]
             assert atom_arr.shape == (1, 2 * o3_lambda + 1, nmax[(symbol, o3_lambda)])
             # Reshape to a flatten array and store. IMPORTANT: Fortran order
-            atom_arr = np.reshape(atom_arr, (-1,), order="F")
-            tmp_dict[atom_idx] = atom_arr
+            atom_arr = _dispatch.reshape(atom_arr, (-1,), backend=backend, order="F")
+            tmp_dict[atom_idx.item()] = atom_arr
         coeff_dict[(o3_lambda, symbol)] = tmp_dict
 
     # Combine the individual arrays into a single flat vector
     # Loop over the atomic species in the order given in `frame`
-    coeffs = np.array([])
+    coeffs = _dispatch.array([], backend)
     for atom_i, symbol in enumerate(system.get_symbols(frame)):
         if symbol not in lmax:
             lmax[symbol] = -1
         for o3_lambda in range(lmax[symbol] + 1):
-            coeffs = np.append(coeffs, coeff_dict[(o3_lambda, symbol)][atom_i])
+            coeffs = _dispatch.concatenate([coeffs, coeff_dict[(o3_lambda, symbol)][atom_i]], backend)
 
     return coeffs
 
