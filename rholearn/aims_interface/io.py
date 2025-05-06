@@ -59,6 +59,8 @@ def write_geometry(frame: Frame, write_dir: str) -> None:
                 f" {atom.type}"
                 "\n"
             )
+            if atom.charge != 0.0:
+                f.write(f"initial_charge {frame.atoms[i].charge}\n")
 
 
 def read_geometry(read_dir: str, fname: Optional[str] = "geometry.in") -> Frame:
@@ -76,7 +78,8 @@ def read_geometry(read_dir: str, fname: Optional[str] = "geometry.in") -> Frame:
     cell = []
     positions = []
     symbols = []
-    for line in lines:
+    charges = []
+    for line_i, line in enumerate(lines):
         if line.startswith("#"):  # comment line
             continue
 
@@ -87,11 +90,22 @@ def read_geometry(read_dir: str, fname: Optional[str] = "geometry.in") -> Frame:
             positions.append([float(x) for x in line.split()[1:4]])
             symbols.append(line.split()[4])
 
+            # Read the next line to see if there is an initial charge there
+            if line_i + 1 == len(lines):
+                charges.append(0.0)
+            else:
+                if lines[line_i + 1].startswith("initial_charge"):
+                    charges.append(float(line.split()[1]))
+                else:
+                    charges.append(0.0)
+
     # Build the Frame object
     frame = Frame()
     frame.cell = UnitCell(cell)
-    for symbol, position in zip(symbols, positions):
-        frame.add_atom(Atom(name=symbol, type=symbol), position=position)
+    for symbol, position, charge in zip(symbols, positions, charges):
+        atom = Atom(name=symbol, type=symbol)
+        atom.charge = charge
+        frame.add_atom(atom, position=position)
 
     return frame
 

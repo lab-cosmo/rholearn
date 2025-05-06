@@ -6,16 +6,66 @@ from os.path import exists
 from typing import List, Optional, Union
 
 import ase
+import ase.io
+import chemfiles
 import metatensor
 import metatensor.torch
 import numpy as np
 import torch
 import vesin
-from chemfiles import Frame, Trajectory
+# from chemfiles import Frame, Trajectory
 from metatensor.torch.atomistic import System
 
 from rholearn.utils import ATOMIC_NUMBERS_TO_SYMBOLS, ATOMIC_SYMBOLS_TO_NUMBERS
 from rholearn.utils._dispatch import int_array
+
+
+# TODO: old version, kept for now. This uses the chemfiles Trajectory class, but has
+# been switched to going via ASE so that initial charges can be read.
+# def read_frames_from_xyz(
+#     xyz_path: str, idxs: Optional[List[int]] = None
+# ) -> List[Frame]:
+#     """
+#     Reads a .xyz file and returns a list of chemfiles.Frames.
+
+#     If ``index`` is passed, only the frames indexed by the list will be returned.
+#     """
+#     assert isinstance(xyz_path, str), f"Invalid path: {xyz_path}. Must be a string."
+#     if not exists(xyz_path):
+#         raise FileNotFoundError(f"File not found: {xyz_path}")
+#     with Trajectory(xyz_path, "r") as trajectory:
+#         if idxs is None:
+#             idxs = list(range(trajectory.nsteps))
+#         if isinstance(idxs, int):
+#             idxs = [idxs]
+#         assert isinstance(idxs, list)
+#         frames = [trajectory.read_step(i) for i in idxs]
+
+#     return frames
+
+class Frame(chemfiles.Frame):
+    """
+    Provides a wrapper for constructing a py:class:`chemfiles.Frame` object.
+    """
+
+    def __init__(
+        self,
+        symbols: List[str],
+        positions: np.ndarray,
+        cell: np.ndarray = None,
+        charges: np.ndarray = None,
+    ) -> None:
+        super().__init__()
+
+        for symbol, position in zip(symbols, positions):
+            self.add_atom(chemfiles.Atom(symbol), position)
+
+        if cell is not None:
+            self.cell = chemfiles.UnitCell(cell)
+
+        if charges is not None:
+            for atom, charge in zip(self.atoms, charges):
+                atom.charge = charge
 
 
 def read_frames_from_xyz(
@@ -26,19 +76,25 @@ def read_frames_from_xyz(
 
     If ``index`` is passed, only the frames indexed by the list will be returned.
     """
-    assert isinstance(xyz_path, str), f"Invalid path: {xyz_path}. Must be a string."
-    if not exists(xyz_path):
-        raise FileNotFoundError(f"File not found: {xyz_path}")
-    with Trajectory(xyz_path, "r") as trajectory:
-        if idxs is None:
-            idxs = list(range(trajectory.nsteps))
-        if isinstance(idxs, int):
-            idxs = [idxs]
-        assert isinstance(idxs, list)
-        frames = [trajectory.read_step(i) for i in idxs]
+    # TODO: temporary hack to ensure charges are read from xyz. Read using ASE, then
+    # convert.
+    frames = ase.io.read(xyz_path, ":")
+    if idxs is not None:
+        frames = [frames[i] for i in idxs]
+    
+    return [
+        frame_ase_to_chemfiles(frame) for frame in frames
+    ]
 
-    return frames
 
+def frame_ase_to_chemfiles(frame: ase.Atoms) -> chemfiles.Frame:
+    """Converts an ase.Atoms object to a chemfiles frame."""
+    return Frame(
+        symbols=frame.get_chemical_symbols(),
+        positions=frame.positions,
+        cell=frame.cell,
+        charges=frame.get_initial_charges(),
+    )
 
 def atomic_symbol_to_atomic_number(symbol: str) -> int:
     """

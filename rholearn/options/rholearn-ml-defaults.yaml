@@ -36,6 +36,9 @@ DESCRIPTOR_HYPERS:
 PRETRAIN: false
 PRETRAIN_ARGS: {}
 
+# Save datasets
+SAVE_DATASETS: false
+
 # NN Layers
 ARCHITECTURE:
   linear:

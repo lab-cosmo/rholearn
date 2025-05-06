@@ -381,6 +381,13 @@ def train():
         [batch.target_c for batch in val_dataset], "samples", **join_kwargs
     )
 
+    # Save descriptors and targets, if applicable
+    if ml_options["SAVE_DATASETS"] is True:
+        mts.save("all_train_descriptor.npz", all_train_descriptor)
+        mts.save("all_train_target_c.npz", all_train_target_c)
+        mts.save("all_val_descriptor.npz", all_val_descriptor)
+        mts.save("all_val_target_c.npz", all_val_target_c)
+
     # For loss evaluation, the target coefficients need to be converted from being block
     # sparse in angular order and species type to just block sparse in species type.
     # Modify the data in the training and validation datasets
